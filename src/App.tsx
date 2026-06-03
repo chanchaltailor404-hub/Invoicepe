@@ -202,9 +202,18 @@ export default function App() {
       formItems.map(item => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
-          // Ensure quantity is at least 1
-          if (field === 'quantity' && Number(value) < 1) {
-            updated.quantity = 1;
+          // Keep quantity flexible during input, we validate >= 1 on final action/submit
+          if (field === 'quantity') {
+            if (value === '' || value === null) {
+              updated.quantity = '' as any;
+            } else {
+              const numVal = Number(value);
+              if (numVal < 0) {
+                updated.quantity = 0;
+              } else {
+                updated.quantity = numVal;
+              }
+            }
           }
           return updated;
         }
@@ -630,9 +639,9 @@ export default function App() {
       return;
     }
 
-    const invalidItems = formItems.some(i => !i.name.trim() || i.price <= 0);
+    const invalidItems = formItems.some(i => !i.name.trim() || i.price <= 0 || !i.quantity || Number(i.quantity) < 1);
     if (invalidItems) {
-      showToast('Please fill item descriptions and premium prices (> 0)', 'info');
+      showToast('Please fill item descriptions, rate (> 0), and quantity (>= 1)', 'info');
       return;
     }
 
@@ -1954,8 +1963,8 @@ CREATE TABLE invoice_items (
                     <div className="space-y-3">
                       {formItems.map((item, idx) => (
                         <div key={item.id} className="p-3 bg-neutral-50 rounded-xl border border-neutral-100 space-y-2 relative">
-                          <div className="flex items-start gap-2 pr-6">
-                            <div className="flex-1">
+                          <div className="flex items-start gap-2 pr-8">
+                            <div className="flex-1 text-left">
                               <label className="block text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Item Name</label>
                               <input
                                 type="text"
@@ -1969,7 +1978,8 @@ CREATE TABLE invoice_items (
                             <button
                               type="button"
                               onClick={() => handleRemoveFormItem(item.id)}
-                              className="text-neutral-400 hover:text-red-500 absolute top-2.5 right-2"
+                              className="text-neutral-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all absolute top-2.5 right-2 z-10 flex items-center justify-center cursor-pointer min-h-[36px] min-w-[36px]"
+                              title="Delete Item"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1982,8 +1992,11 @@ CREATE TABLE invoice_items (
                                 type="number"
                                 min={1}
                                 required
-                                value={item.quantity || ''}
-                                onChange={(e) => handleUpdateFormItem(item.id, 'quantity', Number(e.target.value))}
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  handleUpdateFormItem(item.id, 'quantity', val === '' ? '' : Number(val));
+                                }}
                                 className="w-full text-xs px-2 py-1.5 bg-white rounded border border-neutral-200 font-medium"
                               />
                             </div>
