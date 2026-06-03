@@ -1,0 +1,6 @@
+{
+  "name": "InvoicePe",
+  "description": "A high-fidelity mobile-first invoice dashboard for Indian small shop owners, styled in a warm orange and white theme.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
