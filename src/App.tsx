@@ -1333,12 +1333,22 @@ Powered by InvoicePe 🧾`;
       .trim();
 
     // Look for separator keywords in Hindi or English (e.g. "Ramesh ko", "Ramesh customer", "Ramesh ji")
-    const customerSeparatorMatch = cleaned.match(/^([a-zA-Z\s\u0900-\u097F]+?)\s+(ko|customer|for|bhai|ji|uncle|grahak)\b/i);
-    if (customerSeparatorMatch) {
-      customerNameResult = customerSeparatorMatch[1].trim();
-      itemPart = cleaned.substring(customerSeparatorMatch[0].length).trim();
+    const koRegex = /\s+(?:ko|ko\s+ji|ji\s+ko|को|for|to)\s+/i;
+    const hasKoIdx = cleaned.search(koRegex);
+    if (hasKoIdx !== -1) {
+      const beforeKo = cleaned.substring(0, hasKoIdx).trim();
+      const words = beforeKo.split(/\s+/);
+      if (words.length > 0) {
+        // First word before 'ko' = customer name
+        customerNameResult = words[words.length - 1].trim();
+        // Remove non-word characters and retain Hindi / English characters
+        customerNameResult = customerNameResult.replace(/^[-\s,.:;+()]+|[-\s,.:;+()]+$/g, "");
+      }
+      const match = cleaned.match(koRegex);
+      const separatorLength = match ? match[0].length : 4;
+      itemPart = cleaned.substring(hasKoIdx + separatorLength).trim();
     } else {
-      // Split at the first comma (Ramesh, 2 kilo atta...)
+      // Split at the first comma as fallback
       const commaSplit = cleaned.split(/,|\bko\b/i);
       if (commaSplit.length > 1 && isNaN(Number(commaSplit[0].trim()))) {
         customerNameResult = commaSplit[0].trim();
@@ -1357,8 +1367,8 @@ Powered by InvoicePe 🧾`;
       customerNameResult = "Walk-in Customer";
     }
 
-    // Split entire tail block into components by "aur", "and", "plus", "+", "another", "then", or commas
-    const itemSplitRegex = /\s+(?:aur|and|plus|\+|another|then|comma)\s+|,/i;
+    // Split entire tail block into components by "aur", "and", "plus", "+", "or", "another", "then", or commas
+    const itemSplitRegex = /\s+(?:aur|and|और|plus|\+|then|comma)\s+|,/gi;
     const itemBlocks = itemPart.split(itemSplitRegex);
     const parsedItems: InvoiceItem[] = [];
 
@@ -1367,7 +1377,7 @@ Powered by InvoicePe 🧾`;
       if (!trimmedBlock) return;
 
       // Match all numerical sequences
-      const numbers = trimmedBlock.match(/\d+(\.\d+)?/g);
+      const numbers = trimmedBlock.match(/\d+(?:\.\d+)?/g);
       if (!numbers) {
         if (trimmedBlock.length > 2) {
           parsedItems.push({
@@ -1385,46 +1395,65 @@ Powered by InvoicePe 🧾`;
       let name = trimmedBlock;
 
       if (numbers.length >= 2) {
-        quantity = Number(numbers[0]);
-        price = Number(numbers[numbers.length - 1]); // Last number is usually price/rate
+        // Numbers before item name = quantity
+        // Numbers after item name = rate/price
+        const qStr = numbers[0];
+        const pStr = numbers[numbers.length - 1];
+
+        quantity = Number(qStr);
+        price = Number(pStr);
 
         // Get everything in between
-        const qIndex = trimmedBlock.indexOf(numbers[0]);
-        const pIndex = trimmedBlock.lastIndexOf(numbers[numbers.length - 1]);
-        let midPart = trimmedBlock;
-        if (qIndex !== -1 && pIndex !== -1 && pIndex > qIndex) {
-          midPart = trimmedBlock.substring(qIndex + numbers[0].length, pIndex).trim();
+        const qIndex = trimmedBlock.indexOf(qStr);
+        const pIndex = trimmedBlock.lastIndexOf(pStr);
+
+        let midPart = "";
+        if (qIndex !== -1 && pIndex !== -1 && pIndex > qIndex + qStr.length) {
+          midPart = trimmedBlock.substring(qIndex + qStr.length, pIndex).trim();
+        } else {
+          midPart = trimmedBlock.replace(qStr, "").replace(pStr, "").trim();
         }
 
         // Strip off common filler words & units in Hindi/English
         name = midPart
-          .replace(/^(kilo|kg|l|litre|liter|ltr|packet|packets|pc|pcs|piece|pieces|box|boxes|bag|bags|of|at|rate|for|ko|to|rupaye|rupees|rs|rs\.)\s+/gi, "")
-          .replace(/\s+(kilo|kg|l|litre|liter|ltr|packet|packets|pc|pcs|piece|pieces|box|boxes|bag|bags|of|at|rate|for|ko|to|rupaye|rupees|rs|rs\.)$/gi, "")
+          .replace(/^(?:kilo|kilos|kg|kgs|litre|litres|liter|liters|ltr|ltrs|packet|packets|piece|pieces|pc|pcs|gram|grams|g|ml|of|at|rate|for|ko|to|rupaye|rupee|rupees|rs|rs\.)\s+/gi, "")
+          .replace(/^(?:किलो|लीटर|पीस|पैकेट|ग्राम|रुपये|रुपया|का|के)\s+/i, "")
+          .replace(/\s+(?:kilo|kilos|kg|kgs|litre|litres|liter|liters|ltr|ltrs|packet|packets|piece|pieces|pc|pcs|gram|grams|g|ml|of|at|rate|for|ko|to|rupaye|rupee|rupees|rs|rs\.)$/gi, "")
+          .replace(/\s+(?:किलो|लीटर|पीस|पैकेट|ग्राम|रुपये|रुपया|का|के)$/i, "")
           .trim();
 
         if (!name) {
           name = midPart;
         }
 
-        // Add matching clean unit labels in brackets for pretty bill look
-        const unitMatch = trimmedBlock.match(/\b(kilo|kg|litre|liter|ltr|packet|packets|pc|pcs|piece|pieces|box|boxes|bag|bags)\b/i);
-        if (unitMatch && !name.toLowerCase().includes(unitMatch[0].toLowerCase())) {
-          name = `${name} (${unitMatch[0]})`;
-        }
-
       } else if (numbers.length === 1) {
-        const val = Number(numbers[0]);
-        const hasPriceIndicator = trimmedBlock.match(/\b(rupaye|rupees|rs|rate|price|₹|inr)\b/i);
+        const valStr = numbers[0];
+        const val = Number(valStr);
+        const valIdx = trimmedBlock.indexOf(valStr);
 
-        if (hasPriceIndicator) {
+        const beforeText = trimmedBlock.substring(0, valIdx).trim();
+        const afterText = trimmedBlock.substring(valIdx + valStr.length).trim();
+
+        const hasPriceIndicator = trimmedBlock.match(/\b(rupaye|rupee|rupees|rs|rate|price|₹|inr|रुपये|रुपया|रू|रु)\b/i);
+
+        if (hasPriceIndicator || (beforeText.length > 0 && afterText.length === 0)) {
+          // Number after item name = price/rate
           price = val;
           quantity = 1;
-          name = trimmedBlock.replace(numbers[0], "").replace(/\b(rupaye|rupees|rs|rate|price|₹|inr)\b/gi, "").trim();
+          name = beforeText;
         } else {
+          // Number before item name = quantity
           quantity = val;
           price = 0;
-          name = trimmedBlock.replace(numbers[0], "").trim();
+          name = afterText;
         }
+
+        name = name
+          .replace(/^(?:kilo|kilos|kg|kgs|litre|litres|liter|liters|ltr|ltrs|packet|packets|piece|pieces|pc|pcs|gram|grams|g|ml|of|at|rate|for|ko|to|rupaye|rupee|rupees|rs|rs\.)\s+/gi, "")
+          .replace(/^(?:किलो|लीटर|पीस|पैकेट|ग्राम|रुपये|रुपया|का|के)\s+/i, "")
+          .replace(/\s+(?:kilo|kilos|kg|kgs|litre|litres|liter|liters|ltr|ltrs|packet|packets|piece|pieces|pc|pcs|gram|grams|g|ml|of|at|rate|for|ko|to|rupaye|rupee|rupees|rs|rs\.)$/gi, "")
+          .replace(/\s+(?:किलो|लीटर|पीस|पैकेट|ग्राम|रुपये|रुपया|का|के)$/i, "")
+          .trim();
       }
 
       name = name.replace(/\s+/g, " ")
