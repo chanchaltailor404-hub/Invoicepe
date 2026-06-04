@@ -50,6 +50,15 @@ export default function App() {
   const [isEditingShop, setIsEditingShop] = useState(false);
   const [customShopInput, setCustomShopInput] = useState(shopName);
 
+  const [ownerName, setOwnerName] = useState(() => localStorage.getItem('invoicepe_owner_name') || '');
+  const [customOwnerInput, setCustomOwnerInput] = useState(ownerName);
+
+  const [shopPhone, setShopPhone] = useState(() => localStorage.getItem('invoicepe_shop_phone') || '');
+  const [customShopPhoneInput, setCustomShopPhoneInput] = useState(shopPhone);
+
+  const [shopAddress, setShopAddress] = useState(() => localStorage.getItem('invoicepe_shop_address') || '');
+  const [customShopAddressInput, setCustomShopAddressInput] = useState(shopAddress);
+
   // UPI configuration
   const [upiId, setUpiId] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
   const [customUpiInput, setCustomUpiInput] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
@@ -211,6 +220,57 @@ export default function App() {
   const [udhaarAmount, setUdhaarAmount] = useState<number | ''>('');
   const [udhaarDesc, setUdhaarDesc] = useState('');
   const [udhaarDate, setUdhaarDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Load Shop Profile from Supabase with LocalStorage cache
+  const fetchShopProfileFromSupabase = async (currentUser = user) => {
+    if (!currentUser) return;
+    try {
+      console.log('Fetching shop profile for user_id:', currentUser.id);
+      const { data, error } = await supabase
+        .from('shop_profiles')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Error fetching shop profile (it might not exist yet):', error);
+        return;
+      }
+
+      if (data) {
+        console.log('Loaded shop profile:', data);
+        setShopName(data.shop_name);
+        setCustomShopInput(data.shop_name);
+
+        setUpiId(data.upi_id);
+        setCustomUpiInput(data.upi_id);
+
+        setGstin(data.gstin || '');
+        setCustomGstinInput(data.gstin || '');
+
+        setOwnerName(data.owner_name || '');
+        setCustomOwnerInput(data.owner_name || '');
+
+        setShopPhone(data.phone || '');
+        setCustomShopPhoneInput(data.phone || '');
+
+        setShopAddress(data.address || '');
+        setCustomShopAddressInput(data.address || '');
+
+        // Cache locally
+        localStorage.setItem('invoicepe_shop_name', data.shop_name);
+        localStorage.setItem('invoicepe_upi_id', data.upi_id);
+        localStorage.setItem('invoicepe_gstin', data.gstin || '');
+        localStorage.setItem('invoicepe_owner_name', data.owner_name || '');
+        localStorage.setItem('invoicepe_shop_phone', data.phone || '');
+        localStorage.setItem('invoicepe_shop_address', data.address || '');
+      } else {
+        console.log('No shop profile entry found in database for this user.');
+      }
+    } catch (err) {
+      console.error('Exception fetching shop profile:', err);
+    }
+  };
 
   // Load Udhaar from Supabase with LocalStorage fallback
   const fetchUdhaarsFromSupabase = async (showLoading = false, currentUser = user) => {
@@ -514,8 +574,31 @@ export default function App() {
       
       setUser(null);
       setInvoices([]);
+      setUdhaars([]);
       setAuthEmail('');
       setAuthPassword('');
+
+      // Clear cached and state-level shop configurations
+      setShopName('Verma General Store');
+      setCustomShopInput('Verma General Store');
+      setUpiId('');
+      setCustomUpiInput('');
+      setGstin('');
+      setCustomGstinInput('');
+      setOwnerName('');
+      setCustomOwnerInput('');
+      setShopPhone('');
+      setCustomShopPhoneInput('');
+      setShopAddress('');
+      setCustomShopAddressInput('');
+
+      localStorage.removeItem('invoicepe_shop_name');
+      localStorage.removeItem('invoicepe_upi_id');
+      localStorage.removeItem('invoicepe_gstin');
+      localStorage.removeItem('invoicepe_owner_name');
+      localStorage.removeItem('invoicepe_shop_phone');
+      localStorage.removeItem('invoicepe_shop_address');
+
       showToast('Logged out successfully from InvoicePe', 'info');
     } catch (err: any) {
       console.error('❌ Logout error:', err);
@@ -531,6 +614,9 @@ export default function App() {
     const newName = customShopInput.trim();
     const newUpi = customUpiInput.trim();
     const newGstin = customGstinInput.trim().toUpperCase();
+    const newOwnerName = customOwnerInput.trim();
+    const newPhone = customShopPhoneInput.trim();
+    const newAddress = customShopAddressInput.trim();
 
     if (!newName) {
       showToast('Shop name updated nahi kiya ja sakta, kripya sahi naam bharein!', 'info');
@@ -544,23 +630,56 @@ export default function App() {
     setShopName(newName);
     setUpiId(newUpi);
     setGstin(newGstin);
+    setOwnerName(newOwnerName);
+    setShopPhone(newPhone);
+    setShopAddress(newAddress);
+
     localStorage.setItem('invoicepe_shop_name', newName);
     localStorage.setItem('invoicepe_upi_id', newUpi);
     localStorage.setItem('invoicepe_gstin', newGstin);
+    localStorage.setItem('invoicepe_owner_name', newOwnerName);
+    localStorage.setItem('invoicepe_shop_phone', newPhone);
+    localStorage.setItem('invoicepe_shop_address', newAddress);
+
     setIsSettingsOpen(false);
-    showToast(`Vyapaar profile aur configurations successfully update hui!`, 'success');
+    showToast(`Vyapaar profile successfully update hui!`, 'success');
 
     if (user) {
       try {
-        const { error } = await supabase.auth.updateUser({
+        console.log('Saving shop profile to Supabase shop_profiles table...');
+        const { error: profileErr } = await supabase
+          .from('shop_profiles')
+          .upsert({
+            user_id: user.id,
+            shop_name: newName,
+            owner_name: newOwnerName,
+            phone: newPhone,
+            address: newAddress,
+            upi_id: newUpi,
+            gstin: newGstin
+          }, { onConflict: 'user_id' });
+
+        if (profileErr) {
+          console.error('Error upserting to shop_profiles table:', profileErr);
+          showToast('Table synchronization failed, but saved locally.', 'info');
+        } else {
+          console.log('Shop profile table upsert complete!');
+          showToast('Profile synced with cloud ledger!', 'success');
+        }
+
+        // Keep user metadata synced as fallback
+        const { error: authErr } = await supabase.auth.updateUser({
           data: { 
             shop_name: newName,
             upi_id: newUpi,
-            gstin: newGstin
+            gstin: newGstin,
+            owner_name: newOwnerName,
+            phone: newPhone,
+            address: newAddress
           }
         });
-        if (error) {
-          console.error('Error syncing settings to Supabase user metadata:', error);
+        if (authErr) {
+          console.error('Error syncing settings to Supabase user metadata:', authErr);
         }
       } catch (err) {
         console.error('Error syncing settings:', err);
@@ -750,6 +869,7 @@ export default function App() {
           setCustomGstinInput(metaGstin);
         }
         startupDatabaseTest(sessionUser);
+        fetchShopProfileFromSupabase(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaarsFromSupabase(true, sessionUser);
       } else {
@@ -782,6 +902,7 @@ export default function App() {
           setGstin(metaGstin);
           setCustomGstinInput(metaGstin);
         }
+        fetchShopProfileFromSupabase(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaarsFromSupabase(true, sessionUser);
       } else {
@@ -2063,6 +2184,9 @@ Powered by InvoicePe 🧾`;
                     setCustomShopInput(shopName);
                     setCustomUpiInput(upiId);
                     setCustomGstinInput(gstin);
+                    setCustomOwnerInput(ownerName);
+                    setCustomShopPhoneInput(shopPhone);
+                    setCustomShopAddressInput(shopAddress);
                     setIsSettingsOpen(true);
                   }}
                   className="flex items-center gap-2 cursor-pointer group bg-orange-50/50 hover:bg-orange-50 px-2.5 py-1.5 rounded-xl border border-orange-100 transition-all select-none"
@@ -2901,6 +3025,42 @@ CREATE TABLE invoice_items (
                         onChange={(e) => setCustomShopInput(e.target.value)}
                         placeholder="जैसे: Verma General Store"
                         className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
+                      />
+                    </div>
+
+                    {/* Owner Name input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">मालिक का नाम (Owner Name)</label>
+                      <input
+                        type="text"
+                        value={customOwnerInput}
+                        onChange={(e) => setCustomOwnerInput(e.target.value)}
+                        placeholder="जैसे: Ramesh Verma"
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
+                      />
+                    </div>
+
+                    {/* Phone input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">फ़ोन नंबर (Shop Phone)</label>
+                      <input
+                        type="text"
+                        value={customShopPhoneInput}
+                        onChange={(e) => setCustomShopPhoneInput(e.target.value)}
+                        placeholder="जैसे: 9876543210"
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
+                      />
+                    </div>
+
+                    {/* Address input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">पता (Shop Address)</label>
+                      <textarea
+                        value={customShopAddressInput}
+                        onChange={(e) => setCustomShopAddressInput(e.target.value)}
+                        placeholder="जैसे: Shop No. 12, Main Market, New Delhi"
+                        rows={2}
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800 resize-none"
                       />
                     </div>
 
@@ -3779,6 +3939,9 @@ CREATE TABLE invoice_items (
                             setCustomShopInput(shopName);
                             setCustomUpiInput(upiId || '');
                             setCustomGstinInput(gstin || '');
+                            setCustomOwnerInput(ownerName || '');
+                            setCustomShopPhoneInput(shopPhone || '');
+                            setCustomShopAddressInput(shopAddress || '');
                             setIsSettingsOpen(true);
                           }}
                           className="mt-2.5 mb-2 p-3.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-2xl cursor-pointer transition-all flex items-center gap-3 group justify-between select-none"

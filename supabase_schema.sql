@@ -147,3 +147,34 @@ CREATE POLICY "Users can update their own udhaar records" ON udhaar
 CREATE POLICY "Users can delete their own udhaar records" ON udhaar 
     FOR DELETE USING (auth.uid() = user_id);
 
+
+-- 5. Shop Profiles Table (Unique profile per user)
+CREATE TABLE IF NOT EXISTS shop_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+    shop_name TEXT NOT NULL,
+    owner_name TEXT,
+    phone TEXT,
+    address TEXT,
+    upi_id TEXT NOT NULL,
+    gstin TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Enable RLS for shop_profiles
+ALTER TABLE shop_profiles ENABLE ROW LEVEL SECURITY;
+
+-- Shop Profiles Policies
+CREATE POLICY "Users can select their own shop profile" ON shop_profiles
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own shop profile" ON shop_profiles
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own shop profile" ON shop_profiles
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own shop profile" ON shop_profiles
+    FOR DELETE USING (auth.uid() = user_id);
+
+
