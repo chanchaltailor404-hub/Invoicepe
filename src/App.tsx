@@ -26,7 +26,9 @@ import {
   MessageSquare,
   LogOut,
   Notebook,
-  QrCode
+  QrCode,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -52,6 +54,20 @@ export default function App() {
   const [upiId, setUpiId] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
   const [customUpiInput, setCustomUpiInput] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // GSTIN configuration
+  const [gstin, setGstin] = useState(() => localStorage.getItem('invoicepe_gstin') || '');
+  const [customGstinInput, setCustomGstinInput] = useState(() => localStorage.getItem('invoicepe_gstin') || '');
+
+  // GST Report configuration
+  const [isGstReportOpen, setIsGstReportOpen] = useState(false);
+  const [selectedReportMonth, setSelectedReportMonth] = useState(() => new Date().getMonth() + 1);
+  const [selectedReportYear, setSelectedReportYear] = useState(() => new Date().getFullYear());
+  const [isGeneratingGstReport, setIsGeneratingGstReport] = useState(false);
+
+  // Voice Invoice configuration
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
 
   // Invoices list state
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -514,6 +530,8 @@ export default function App() {
     e.preventDefault();
     const newName = customShopInput.trim();
     const newUpi = customUpiInput.trim();
+    const newGstin = customGstinInput.trim().toUpperCase();
+
     if (!newName) {
       showToast('Shop name updated nahi kiya ja sakta, kripya sahi naam bharein!', 'info');
       return;
@@ -525,17 +543,20 @@ export default function App() {
 
     setShopName(newName);
     setUpiId(newUpi);
+    setGstin(newGstin);
     localStorage.setItem('invoicepe_shop_name', newName);
     localStorage.setItem('invoicepe_upi_id', newUpi);
+    localStorage.setItem('invoicepe_gstin', newGstin);
     setIsSettingsOpen(false);
-    showToast(`Vyapaar profile aur UPI ID successfully update hui!`, 'success');
+    showToast(`Vyapaar profile aur configurations successfully update hui!`, 'success');
 
     if (user) {
       try {
         const { error } = await supabase.auth.updateUser({
           data: { 
             shop_name: newName,
-            upi_id: newUpi
+            upi_id: newUpi,
+            gstin: newGstin
           }
         });
         if (error) {
@@ -723,6 +744,11 @@ export default function App() {
           setUpiId(metaUpi);
           setCustomUpiInput(metaUpi);
         }
+        const metaGstin = sessionUser.user_metadata?.gstin;
+        if (metaGstin) {
+          setGstin(metaGstin);
+          setCustomGstinInput(metaGstin);
+        }
         startupDatabaseTest(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaarsFromSupabase(true, sessionUser);
@@ -750,6 +776,11 @@ export default function App() {
         if (metaUpi) {
           setUpiId(metaUpi);
           setCustomUpiInput(metaUpi);
+        }
+        const metaGstin = sessionUser.user_metadata?.gstin;
+        if (metaGstin) {
+          setGstin(metaGstin);
+          setCustomGstinInput(metaGstin);
         }
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaarsFromSupabase(true, sessionUser);
@@ -1115,6 +1146,457 @@ export default function App() {
     
     showToast(`Sending payment reminder to ${cust.name}!`, 'success');
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // Send WhatsApp Daily Summary of today's business
+  const handleSendDailySummary = async () => {
+    try {
+      showToast("Fetching today's latest business ledger...", "info");
+      
+      // Update background lists from Supabase
+      if (user) {
+        await Promise.all([
+          fetchInvoicesFromSupabase(false),
+          fetchUdhaarsFromSupabase(false)
+        ]);
+      }
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayInvoices = invoices.filter(inv => inv.date === todayStr);
+
+      const todaySales = todayInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+      const invoicesCount = todayInvoices.length;
+
+      const totalPendingPayments = invoices
+        .filter(inv => inv.status === 'Pending')
+        .reduce((sum, inv) => sum + inv.totalAmount, 0);
+
+      const totalActiveUdhaar = udhaars
+        .filter(entry => entry.status === 'Unpaid')
+        .reduce((sum, entry) => sum + entry.amount, 0);
+
+      const formattedDate = new Date().toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+
+      // Construct WhatsApp message template precisely as requested
+      const text = `📊 InvoicePe Daily Report - ${formattedDate}
+🏪 ${shopName.toUpperCase()}
+✅ Today's Sales: ₹${todaySales.toLocaleString('en-IN')}
+📄 Invoices Created: ${invoicesCount}
+⏳ Pending Payments: ₹${totalPendingPayments.toLocaleString('en-IN')}
+📒 Active Udhaar: ₹${totalActiveUdhaar.toLocaleString('en-IN')}
+Powered by InvoicePe 🧾`;
+
+      const encoded = encodeURIComponent(text);
+      const url = `https://api.whatsapp.com/send?text=${encoded}`;
+
+      showToast("Opening WhatsApp with Daily Report summary...", "success");
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error("Error generating daily summary:", error);
+      showToast("Pratikriya fill nahi ho payi, punah prayas karein.", "info");
+    }
+  };
+
+  // Parse voice text transcript to auto-extract Customer Name, and Items with quantities/rates
+  const parseVoiceInvoice = (transcript: string) => {
+    let customerNameResult = "";
+    let itemPart = transcript;
+
+    // Remove polite terms or introductory fillers
+    let cleaned = transcript
+      .replace(/^(namaste|hello|hi|please|kripya|invoice for|invoice pe)\s+/gi, "")
+      .trim();
+
+    // Look for separator keywords in Hindi or English (e.g. "Ramesh ko", "Ramesh customer", "Ramesh ji")
+    const customerSeparatorMatch = cleaned.match(/^([a-zA-Z\s\u0900-\u097F]+?)\s+(ko|customer|for|bhai|ji|uncle|grahak)\b/i);
+    if (customerSeparatorMatch) {
+      customerNameResult = customerSeparatorMatch[1].trim();
+      itemPart = cleaned.substring(customerSeparatorMatch[0].length).trim();
+    } else {
+      // Split at the first comma (Ramesh, 2 kilo atta...)
+      const commaSplit = cleaned.split(/,|\bko\b/i);
+      if (commaSplit.length > 1 && isNaN(Number(commaSplit[0].trim()))) {
+        customerNameResult = commaSplit[0].trim();
+        itemPart = cleaned.substring(commaSplit[0].length + 1).trim();
+      } else {
+        // If first word is a string name, check if we can carve it out
+        const words = cleaned.split(/\s+/);
+        if (words.length > 1 && isNaN(Number(words[0]))) {
+          customerNameResult = words[0];
+          itemPart = cleaned.substring(words[0].length).trim();
+        }
+      }
+    }
+
+    if (!customerNameResult) {
+      customerNameResult = "Walk-in Customer";
+    }
+
+    // Split entire tail block into components by "aur", "and", "plus", "+", "another", "then", or commas
+    const itemSplitRegex = /\s+(?:aur|and|plus|\+|another|then|comma)\s+|,/i;
+    const itemBlocks = itemPart.split(itemSplitRegex);
+    const parsedItems: InvoiceItem[] = [];
+
+    itemBlocks.forEach(block => {
+      const trimmedBlock = block.trim();
+      if (!trimmedBlock) return;
+
+      // Match all numerical sequences
+      const numbers = trimmedBlock.match(/\d+(\.\d+)?/g);
+      if (!numbers) {
+        if (trimmedBlock.length > 2) {
+          parsedItems.push({
+            id: 'voice-' + Math.random().toString(36).substring(2, 9),
+            name: trimmedBlock.charAt(0).toUpperCase() + trimmedBlock.slice(1),
+            quantity: 1,
+            price: 0
+          });
+        }
+        return;
+      }
+
+      let quantity = 1;
+      let price = 0;
+      let name = trimmedBlock;
+
+      if (numbers.length >= 2) {
+        quantity = Number(numbers[0]);
+        price = Number(numbers[numbers.length - 1]); // Last number is usually price/rate
+
+        // Get everything in between
+        const qIndex = trimmedBlock.indexOf(numbers[0]);
+        const pIndex = trimmedBlock.lastIndexOf(numbers[numbers.length - 1]);
+        let midPart = trimmedBlock;
+        if (qIndex !== -1 && pIndex !== -1 && pIndex > qIndex) {
+          midPart = trimmedBlock.substring(qIndex + numbers[0].length, pIndex).trim();
+        }
+
+        // Strip off common filler words & units in Hindi/English
+        name = midPart
+          .replace(/^(kilo|kg|l|litre|liter|ltr|packet|packets|pc|pcs|piece|pieces|box|boxes|bag|bags|of|at|rate|for|ko|to|rupaye|rupees|rs|rs\.)\s+/gi, "")
+          .replace(/\s+(kilo|kg|l|litre|liter|ltr|packet|packets|pc|pcs|piece|pieces|box|boxes|bag|bags|of|at|rate|for|ko|to|rupaye|rupees|rs|rs\.)$/gi, "")
+          .trim();
+
+        if (!name) {
+          name = midPart;
+        }
+
+        // Add matching clean unit labels in brackets for pretty bill look
+        const unitMatch = trimmedBlock.match(/\b(kilo|kg|litre|liter|ltr|packet|packets|pc|pcs|piece|pieces|box|boxes|bag|bags)\b/i);
+        if (unitMatch && !name.toLowerCase().includes(unitMatch[0].toLowerCase())) {
+          name = `${name} (${unitMatch[0]})`;
+        }
+
+      } else if (numbers.length === 1) {
+        const val = Number(numbers[0]);
+        const hasPriceIndicator = trimmedBlock.match(/\b(rupaye|rupees|rs|rate|price|₹|inr)\b/i);
+
+        if (hasPriceIndicator) {
+          price = val;
+          quantity = 1;
+          name = trimmedBlock.replace(numbers[0], "").replace(/\b(rupaye|rupees|rs|rate|price|₹|inr)\b/gi, "").trim();
+        } else {
+          quantity = val;
+          price = 0;
+          name = trimmedBlock.replace(numbers[0], "").trim();
+        }
+      }
+
+      name = name.replace(/\s+/g, " ")
+                 .replace(/^[-\s,.:;+()]+|[-\s,.:;+()]+$/g, "")
+                 .trim();
+
+      if (name) {
+        name = name.charAt(0).toUpperCase() + name.slice(1);
+        parsedItems.push({
+          id: 'voice-' + Math.random().toString(36).substring(2, 9),
+          name,
+          quantity,
+          price
+        });
+      }
+    });
+
+    customerNameResult = customerNameResult
+      .replace(/\s+/g, " ")
+      .replace(/^[-\s,.:;+()]+|[-\s,.:;+()]+$/g, "")
+      .trim();
+
+    if (customerNameResult) {
+      customerNameResult = customerNameResult.charAt(0).toUpperCase() + customerNameResult.slice(1);
+    }
+
+    return {
+      customerName: customerNameResult,
+      items: parsedItems
+    };
+  };
+
+  // Start Voice Recognition Recording
+  const startVoiceInvoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast("Apke browser me Speech Recognition support nahi hai. Chrome ya Safari use karein.", "info");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = 'hi-IN'; // Works incredibly well for combining Hindi sentences & English products
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceTranscript("Sunn raha hoon... Hindi ya English me bolein...");
+        showToast("Voice mode chaloo hai! Bolna shuru karein.", "success");
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed') {
+          showToast("Mic permission verify karein!", "info");
+          setVoiceTranscript("Permission Denied: Please check mic configuration.");
+        } else {
+          showToast(`Error matching voice input: ${event.error}`, "info");
+          setVoiceTranscript(`Speech Error: ${event.error}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.onresult = (event: any) => {
+        const textTranscript = event.results[0][0].transcript;
+        setVoiceTranscript(textTranscript);
+        
+        const parsed = parseVoiceInvoice(textTranscript);
+        
+        if (parsed.customerName) {
+          setCustomerName(parsed.customerName);
+        }
+
+        if (parsed.items && parsed.items.length > 0) {
+          const isCurrentEmpty = formItems.length === 1 && formItems[0].name === '' && formItems[0].price === 0;
+          if (isCurrentEmpty) {
+            setFormItems(parsed.items);
+          } else {
+            setFormItems(prev => {
+              const cleanedPrev = prev.filter(item => item.name.trim() !== '');
+              return [...cleanedPrev, ...parsed.items];
+            });
+          }
+          showToast(`Successfully extracted ${parsed.items.length} bill items!`, "success");
+        } else {
+          showToast("Sound heard but couldn't parse any items. Tap again and speak clearly.", "info");
+        }
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error("Failed to start speech service:", err);
+      showToast("Kuch takneeki kharabi aayi. Kripya punah prayas karein.", "info");
+    }
+  };
+
+  // Generate Monthly GST Report PDF
+  const handleGenerateGstReport = async () => {
+    try {
+      if (!(window as any).jspdf) {
+        showToast("Error: jsPDF is still loading. Please try again in a moment.", "info");
+        return;
+      }
+
+      setIsGeneratingGstReport(true);
+      // Fetch latest invoices in background
+      if (user) {
+        await fetchInvoicesFromSupabase(false);
+      }
+      
+      // Filter invoices for selected Month and Year
+      // inv.date is formatted as YYYY-MM-DD
+      const filtered = invoices.filter(inv => {
+        if (!inv.date) return false;
+        const parts = inv.date.split('-');
+        if (parts.length < 2) return false;
+        const y = Number(parts[0]);
+        const m = Number(parts[1]);
+        return y === selectedReportYear && m === selectedReportMonth;
+      });
+
+      if (filtered.length === 0) {
+        const monthNames = [
+          "January", "February", "March", "April", "May", "June", 
+          "July", "August", "September", "October", "November", "December"
+        ];
+        showToast(`Selected period (${monthNames[selectedReportMonth - 1]} ${selectedReportYear}) me koi invoices nahi mile!`, 'info');
+        setIsGeneratingGstReport(false);
+        return;
+      }
+
+      const { jsPDF } = (window as any).jspdf;
+      const doc = new jsPDF();
+
+      // Header Orange Band
+      doc.setFillColor(249, 115, 22); // Orange #F97316
+      doc.rect(0, 0, 210, 40, 'F');
+
+      // White text in the header
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(24);
+      doc.text("InvoicePe", 15, 20);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("MONTHLY TAX LEDGER & GST RETURNS REPORT", 15, 27);
+
+      // Shop details in header right-aligned
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text(shopName.toUpperCase(), 195, 20, { align: "right" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.text(`GSTIN: ${gstin ? gstin.toUpperCase() : 'Not Set (Khaata Personal / Non-GST)'}`, 195, 27, { align: "right" });
+
+      let y = 52;
+
+      // Horizontal Rule
+      doc.setDrawColor(240, 240, 240);
+      doc.line(15, y, 195, y);
+      y += 8;
+
+      // Report Info Header Section
+      doc.setTextColor(60, 60, 60);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("GST SALES SUMMARY REPORT", 15, y);
+
+      const monthNamesUpper = [
+        "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", 
+        "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+      ];
+      const monthStr = monthNamesUpper[selectedReportMonth - 1] + " " + selectedReportYear;
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.text(`REPORT PERIOD: ${monthStr}`, 15, y + 6);
+      doc.text(`GENERATION DATE: ${new Date().toLocaleDateString('en-IN')}`, 120, y + 6);
+
+      y += 14;
+
+      // Draw Table Header Background
+      doc.setFillColor(250, 245, 240); // Soft warm gray
+      doc.rect(15, y, 180, 8, 'F');
+
+      doc.setTextColor(120, 70, 20); // Warm theme color
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+
+      doc.text("INV NO", 17, y + 5.5);
+      doc.text("CUSTOMER NAME", 40, y + 5.5);
+      doc.text("DATE", 95, y + 5.5);
+      doc.text("SUBTOTAL (INR)", 125, y + 5.5, { align: "right" });
+      doc.text("GST AMOUNT", 158, y + 5.5, { align: "right" });
+      doc.text("GRAND TOTAL", 195, y + 5.5, { align: "right" });
+
+      y += 8;
+
+      // Table items rows
+      doc.setTextColor(50, 50, 50);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+
+      let totalSalesSubtotal = 0;
+      let totalGstCollectedAmt = 0;
+      let totalInvoicesCountAmt = filtered.length;
+
+      filtered.forEach((inv) => {
+        if (y > 255) {
+          doc.addPage();
+          y = 20;
+        }
+
+        // Calculate pricing
+        const subtotal = inv.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+        const gstRate = inv.gstRate !== undefined ? inv.gstRate : 18;
+        const gstAmount = inv.gstAmount !== undefined ? inv.gstAmount : subtotal * (gstRate / 100);
+        const grandTotal = subtotal + gstAmount;
+
+        totalSalesSubtotal += subtotal;
+        totalGstCollectedAmt += gstAmount;
+
+        doc.setDrawColor(245, 245, 245);
+        doc.line(15, y + 7, 195, y + 7);
+
+        doc.text(inv.invoiceNo, 17, y + 4.5);
+        const nameTruncated = inv.customerName.length > 22 ? inv.customerName.substring(0, 20) + "..." : inv.customerName;
+        doc.text(nameTruncated, 40, y + 4.5);
+        doc.text(inv.date, 95, y + 4.5);
+        doc.text("₹" + Math.round(subtotal).toLocaleString('en-IN'), 125, y + 4.5, { align: "right" });
+        doc.text("₹" + Math.round(gstAmount).toLocaleString('en-IN') + ` (${gstRate}%)`, 158, y + 4.5, { align: "right" });
+        doc.text("₹" + Math.round(grandTotal).toLocaleString('en-IN'), 195, y + 4.5, { align: "right" });
+        
+        y += 7.5;
+      });
+
+      // Total Summaries
+      if (y > 230) {
+        doc.addPage();
+        y = 20;
+      }
+
+      y += 8;
+      const totalGrandCollected = totalSalesSubtotal + totalGstCollectedAmt;
+
+      // Draw summary container frame
+      doc.setFillColor(254, 247, 240); // Soft orange block
+      doc.rect(15, y, 180, 25, 'F');
+      doc.setDrawColor(249, 115, 22); // Orange border
+      doc.rect(15, y, 180, 25);
+
+      doc.setTextColor(30, 30, 30);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      
+      doc.text(`TOTAL INVOICES ISSUED: ${totalInvoicesCountAmt}`, 20, y + 6.5);
+      doc.text(`TOTAL SALES VALUE (TAXABLE): INR ${Math.round(totalSalesSubtotal).toLocaleString('en-IN')}`, 20, y + 12.5);
+      doc.text(`TOTAL GST TAX COLLECTED: INR ${Math.round(totalGstCollectedAmt).toLocaleString('en-IN')}`, 20, y + 18.5);
+
+      doc.setTextColor(249, 115, 22);
+      doc.setFontSize(10);
+      doc.text("TOTAL GROSS SALES (INR)", 190, y + 7.5, { align: "right" });
+      doc.setFontSize(13);
+      doc.text(`₹${Math.round(totalGrandCollected).toLocaleString('en-IN')}`, 190, y + 17, { align: "right" });
+
+      // Footer line at the bottom of the page
+      doc.setDrawColor(240, 240, 240);
+      doc.line(15, 275, 195, 275);
+
+      doc.setTextColor(140, 140, 140);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text("Generated by InvoicePe Digital Khaata Book • Professional GST Report summary", 15, 281);
+      doc.text("Page 1", 195, 281, { align: "right" });
+
+      const fileSafeMonth = monthStr.replace(/\s+/g, '_');
+      doc.save(`GST_Report_${fileSafeMonth}.pdf`);
+      showToast(`GST Report for ${monthStr} successfully downloaded!`, 'success');
+      setIsGstReportOpen(false);
+    } catch (error: any) {
+      console.error("Error generating GST report:", error);
+      showToast("GST Report update fail ho gaya. Kripya punah prayas karein.", 'info');
+    } finally {
+      setIsGeneratingGstReport(false);
+    }
   };
 
   // Export PDF with jsPDF CDN
@@ -1580,6 +2062,7 @@ export default function App() {
                   onClick={() => {
                     setCustomShopInput(shopName);
                     setCustomUpiInput(upiId);
+                    setCustomGstinInput(gstin);
                     setIsSettingsOpen(true);
                   }}
                   className="flex items-center gap-2 cursor-pointer group bg-orange-50/50 hover:bg-orange-50 px-2.5 py-1.5 rounded-xl border border-orange-100 transition-all select-none"
@@ -1594,6 +2077,16 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Header GST Report Button */}
+              <button
+                type="button"
+                onClick={() => setIsGstReportOpen(true)}
+                title="Generate Monthly GST Report"
+                className="w-8 h-8 rounded-full bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
+              >
+                <FileText className="w-3.5 h-3.5 stroke-[2.5]" />
+              </button>
 
               {/* Header Logout Button */}
               <button
@@ -1800,11 +2293,11 @@ CREATE TABLE invoice_items (
             </div>
 
             {/* QUICK ACTIONS ROW */}
-            <div className="grid grid-cols-3 gap-2" id="quick-actions-row">
+            <div className="grid grid-cols-4 gap-2" id="quick-actions-row">
               <button
                 type="button"
                 onClick={() => setIsFormOpen(true)}
-                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2.5 rounded-xl border border-orange-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[11px] transition-all cursor-pointer"
+                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2 border border-orange-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
               >
                 <Plus className="w-4 h-4 stroke-[2.5]" />
                 <span>New Invoice</span>
@@ -1812,7 +2305,7 @@ CREATE TABLE invoice_items (
               <button
                 type="button"
                 onClick={() => setActiveView('customers')}
-                className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2.5 rounded-xl border border-slate-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[11px] transition-all cursor-pointer"
+                className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2 border border-slate-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
               >
                 <Users className="w-4 h-4 stroke-[2.5]" />
                 <span>Customers</span>
@@ -1820,11 +2313,44 @@ CREATE TABLE invoice_items (
               <button
                 type="button"
                 onClick={() => setActiveView('udhaar')}
-                className="bg-red-50 hover:bg-red-100 text-red-650 p-2.5 rounded-xl border border-red-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[11px] transition-all cursor-pointer"
+                className="bg-red-50 hover:bg-red-100 text-red-650 p-2 border border-red-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
               >
                 <Notebook className="w-4 h-4 text-red-500 stroke-[2.5]" />
-                <span className="text-red-600">Udhaar Book</span>
+                <span className="text-red-650">Udhaar Book</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setIsGstReportOpen(true)}
+                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2 border border-orange-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
+              >
+                <FileText className="w-4 h-4 text-orange-500 stroke-[2.5]" />
+                <span>GST Report</span>
+              </button>
+            </div>
+
+            {/* SEND DAILY SUMMARY LEDGER REPORT CARD */}
+            <div 
+              onClick={handleSendDailySummary}
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-650 hover:to-amber-650 p-4 rounded-xl shadow-sm cursor-pointer transition-all flex items-center justify-between group select-none relative overflow-hidden"
+            >
+              <div className="absolute -right-4 -bottom-4 opacity-10">
+                <Share2 className="w-20 h-20 text-white stroke-[2.5]" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <Share2 className="w-4 h-4 text-white stroke-[2.5]" />
+                </div>
+                <div className="text-left font-sans">
+                  <p className="text-[11px] font-black uppercase text-white tracking-widest flex items-center gap-1.5">
+                    <span>Send Daily Summary</span>
+                  </p>
+                  <p className="text-[9.5px] text-orange-50/90 font-bold leading-tight mt-0.5">Share today's store performance overview on WhatsApp</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 bg-white/15 hover:bg-white/25 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all shrink-0">
+                <span>Send WhatsApp</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+              </div>
             </div>
 
             {/* SEARCH & FILTERS CONTROLS */}
@@ -2378,6 +2904,22 @@ CREATE TABLE invoice_items (
                       />
                     </div>
 
+                    {/* GSTIN input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
+                        GSTIN (GST नंबर - वैकल्पिक) 
+                        <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे 07AAAAA1111A1Z1)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={customGstinInput}
+                        onChange={(e) => setCustomGstinInput(e.target.value.toUpperCase())}
+                        placeholder="GSTIN नंबर दर्ज करें"
+                        maxLength={15}
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold tracking-wider text-slate-850 uppercase font-mono"
+                      />
+                    </div>
+
                     {/* UPI ID input */}
                     <div>
                       <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
@@ -2415,6 +2957,145 @@ CREATE TABLE invoice_items (
                   </div>
 
                 </form>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* DIALOG FOR MONTHLY GST REPORT */}
+        <AnimatePresence>
+          {isGstReportOpen && (
+            <>
+              {/* Backplate backdrop overlay */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsGstReportOpen(false)}
+                className="absolute inset-0 bg-neutral-950 z-50 cursor-pointer"
+              />
+
+              {/* Form container drawer panel slide-up */}
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                className="absolute left-0 right-0 bottom-0 max-h-[80vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
+              >
+                {/* Header of Drawer */}
+                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10 font-sans">
+                  <div>
+                    <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide flex items-center gap-1.5 text-orange-600">
+                      <FileText className="w-4 h-4 text-orange-500 animate-pulse" />
+                      <span>मासिक जीएसटी रिपोर्ट (GST Sales Report)</span>
+                    </h3>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Select month & year to fetch invoices and export PDF</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsGstReportOpen(false)}
+                    className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-600 transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Form main context */}
+                <div className="p-5 space-y-4 flex-1 pb-10 font-sans">
+                  <div className="bg-orange-50/20 p-4 rounded-xl border border-orange-100 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-orange-500" />
+                      <span className="text-xs font-bold text-slate-800">Select Audit Period</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Month Selector */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-1">महीना (Month)</label>
+                        <select
+                          value={selectedReportMonth}
+                          onChange={(e) => setSelectedReportMonth(Number(e.target.value))}
+                          className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all font-bold text-slate-800 cursor-pointer"
+                        >
+                          <option value={1}>January (जनवरी)</option>
+                          <option value={2}>February (फरवरी)</option>
+                          <option value={3}>March (मार्च)</option>
+                          <option value={4}>April (अप्रैल)</option>
+                          <option value={5}>May (मई)</option>
+                          <option value={6}>June (जून)</option>
+                          <option value={7}>July (जुलाई)</option>
+                          <option value={8}>August (अगस्त)</option>
+                          <option value={9}>September (सितंबर)</option>
+                          <option value={10}>October (अक्टूबर)</option>
+                          <option value={11}>November (नवंबर)</option>
+                          <option value={12}>December (दिसंबर)</option>
+                        </select>
+                      </div>
+
+                      {/* Year Selector */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-1">साल (Year)</label>
+                        <select
+                          value={selectedReportYear}
+                          onChange={(e) => setSelectedReportYear(Number(e.target.value))}
+                          className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all font-bold text-slate-800 cursor-pointer"
+                        >
+                          <option value={2024}>2024</option>
+                          <option value={2025}>2025</option>
+                          <option value={2026}>2026</option>
+                          <option value={2027}>2027</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Meta info of total current invoices matched */}
+                    <div className="bg-white p-3 rounded-xl border border-orange-100 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Invoices found</span>
+                      <span className="font-mono font-extrabold text-sm text-order-650 bg-orange-50 px-2.5 py-0.5 rounded-lg text-orange-600">
+                        {invoices.filter(inv => {
+                          if (!inv.date) return false;
+                          const parts = inv.date.split('-');
+                          if (parts.length < 2) return false;
+                          return Number(parts[0]) === selectedReportYear && Number(parts[1]) === selectedReportMonth;
+                        }).length} items
+                      </span>
+                    </div>
+
+                    <div className="text-[9.5px] text-slate-500 leading-normal font-medium bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
+                      * Yeh report automatic data Supabase database se sync karke select kiye gaye maas ke table aur GST calculations compute karegi. Export PDF par click karne se report automatically download ho jayegi.
+                    </div>
+                  </div>
+
+                  {/* Actions Submit / Cancel */}
+                  <div className="pt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsGstReportOpen(false)}
+                      className="flex-1 border border-slate-200 hover:bg-slate-50 py-3.5 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer text-center"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGenerateGstReport}
+                      disabled={isGeneratingGstReport}
+                      className="flex-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-350 py-3.5 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md active:scale-[0.98]"
+                    >
+                      {isGeneratingGstReport ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="w-4 h-4 stroke-[3]" />
+                          <span>EXPORT PDF REPORT</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             </>
           )}
@@ -2594,6 +3275,100 @@ CREATE TABLE invoice_items (
 
                 {/* Form main context */}
                 <form onSubmit={handleCreateInvoice} className="p-5 space-y-4 flex-1 pb-10">
+
+                  {/* VOICE INVOICE MODULE */}
+                  <div className="bg-gradient-to-r from-orange-500/5 via-orange-100/10 to-transparent p-4 rounded-2xl border border-orange-100/80 space-y-3 font-sans shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Mic className={`w-4 h-4 text-orange-500 ${isListening ? 'animate-bounce' : ''}`} />
+                        <span className="text-[11px] font-black text-orange-850 uppercase tracking-widest">Voice Invoice Assist</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[8px] bg-orange-100/80 text-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest uppercase">SPEECH BETA</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={startVoiceInvoice}
+                        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shadow active:scale-95 shrink-0 select-none cursor-pointer ${
+                          isListening 
+                            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
+                            : 'bg-orange-500 hover:bg-orange-600 text-white'
+                        }`}
+                        title={isListening ? "Listening... tap to stop" : "Start speaking voice invoice details"}
+                      >
+                        {isListening ? (
+                          <div className="relative w-5 h-5 flex items-center justify-center">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-white opacity-25 animate-ping"></span>
+                            <MicOff className="w-4 h-4 stroke-[2.5]" />
+                          </div>
+                        ) : (
+                          <Mic className="w-5 h-5 stroke-[2.5]" />
+                        )}
+                      </button>
+
+                      <div className="flex-1 flex flex-col justify-center min-h-[44px]">
+                        {isListening ? (
+                          <div>
+                            <p className="text-[10px] text-orange-600 font-extrabold tracking-wide uppercase animate-pulse mb-0.5">Bolna shuru karein...</p>
+                            <p className="text-[9.5px] text-neutral-400 font-bold leading-none select-none">App automatic details parse karega</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-[10px] text-neutral-600 font-bold leading-snug">
+                              Tap orange mic and speak clearly (Hindi / English):
+                            </p>
+                            <p className="text-[9px] text-neutral-400 mt-0.5 leading-tight font-medium">
+                              e.g. <span className="font-bold text-slate-500 italic">"Ramesh ko 2 kilo atta 60 aur 1 litre tel 120"</span>
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Hearing Results with Text Area to edit transcripts manually */}
+                    {voiceTranscript && (
+                      <div className="space-y-2 pt-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[9.5px] font-bold text-neutral-500 uppercase tracking-widest">What was heard:</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const parsed = parseVoiceInvoice(voiceTranscript);
+                              if (parsed.customerName) setCustomerName(parsed.customerName);
+                              if (parsed.items && parsed.items.length > 0) {
+                                const isCurrentEmpty = formItems.length === 1 && formItems[0].name === '' && formItems[0].price === 0;
+                                if (isCurrentEmpty) {
+                                  setFormItems(parsed.items);
+                                } else {
+                                  setFormItems(prev => {
+                                    const cleanedPrev = prev.filter(item => item.name.trim() !== '');
+                                    return [...cleanedPrev, ...parsed.items];
+                                  });
+                                }
+                                showToast("Re-parsed and successfully added invoice items!", "success");
+                              } else {
+                                showToast("Nothing matched. Check items text syntax and re-try.", "info");
+                              }
+                            }}
+                            className="text-[9px] text-orange-600 font-black bg-orange-100 hover:bg-orange-150 px-2 py-0.5 rounded flex items-center gap-1 transition-colors select-none cursor-pointer border border-orange-200/50"
+                          >
+                            <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                            <span>RE-PARSE & APPLY</span>
+                          </button>
+                        </div>
+                        <textarea
+                          value={voiceTranscript}
+                          onChange={(e) => setVoiceTranscript(e.target.value)}
+                          rows={2}
+                          className="w-full text-[11px] px-3 py-2 bg-white rounded-xl border border-slate-200 focus:outline-none focus:border-orange-500 font-bold text-slate-800 shadow-inner"
+                          placeholder="Edit voice transcript here if mistranscribed..."
+                        />
+                      </div>
+                    )}
+                  </div>
                   
                   {/* Customer details */}
                   <div className="space-y-3.5 bg-orange-50/40 p-3.5 rounded-xl border border-orange-100">
@@ -3003,6 +3778,7 @@ CREATE TABLE invoice_items (
                           onClick={() => {
                             setCustomShopInput(shopName);
                             setCustomUpiInput(upiId || '');
+                            setCustomGstinInput(gstin || '');
                             setIsSettingsOpen(true);
                           }}
                           className="mt-2.5 mb-2 p-3.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-2xl cursor-pointer transition-all flex items-center gap-3 group justify-between select-none"
