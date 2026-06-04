@@ -1435,26 +1435,22 @@ export default function App() {
       const qrGstAmount = inv.gstAmount !== undefined ? inv.gstAmount : qrSubtotal * (qrGstRate / 100);
       const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
       
-      let upiLinkSection = '';
-      if (hasUpiSet) {
-        const upiDeepLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${qrGrandTotal}&cu=INR&tn=${encodeURIComponent(`Invoice-${inv.invoiceNo}`)}`;
-        upiLinkSection = `\n\n💳 *UPI Payment Link (Tap to pay instantly):*\n${upiDeepLink}\n\n*Or pay directly to UPI ID:* ${upiId}\n\n📢 _Note: Humne QR code image automatically download kar di hai. Aap use is message ke saath attach karke bhej sakte hain!_`;
-      }
+      const statusText = (inv.status || 'PENDING').toUpperCase();
+      const currentUpi = upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi' ? upiId : 'shopname@upi';
+      const encodedShopName = encodeURIComponent(shopName);
 
-      const itemsListText = (inv.items || [])
-        .map(it => ` - ${it.name} (${it.quantity} x ₹${it.price})`)
-        .join('\n');
-
-      const text = `*Invoice from ${shopName}* 📈\n` +
-        `----------------------------------------\n` +
-        `*Invoice No:* ${inv.invoiceNo}\n` +
-        `*Customer:* ${inv.customerName}\n` +
-        `----------------------------------------\n` +
-        `*Items:*\n${itemsListText}\n` +
-        `----------------------------------------\n` +
-        `*Total Amount:* ₹${inv.totalAmount.toLocaleString('en-IN')}\n` +
-        `*Status:* ${inv.status === 'Paid' ? '🟢 PAID' : '🔴 PENDING'}` +
-        `${upiLinkSection}\n\nThank you for choosing ${shopName}! Powered by InvoicePe. 🙏`;
+      const text = `🧾 Invoice from ${shopName}\n` +
+        `Invoice No: ${inv.invoiceNo}\n` +
+        `Customer: ${inv.customerName}\n` +
+        `Amount: ₹${inv.totalAmount}\n` +
+        `Status: ${statusText}\n` +
+        `💳 Pay instantly via UPI:\n` +
+        `UPI ID: ${currentUpi}\n` +
+        `Amount: ₹${inv.totalAmount}\n` +
+        `Or click to pay:\n` +
+        `gpay://upi/pay?pa=${currentUpi}&pn=${encodedShopName}&am=${inv.totalAmount}&cu=INR\n` +
+        `Thank you for shopping with us!\n` +
+        `Powered by InvoicePe 🧾`;
 
       const encoded = encodeURIComponent(text);
       const phoneSuffix = inv.customerPhone && inv.customerPhone !== 'No Mobile' ? inv.customerPhone : '';
