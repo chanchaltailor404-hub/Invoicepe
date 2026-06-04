@@ -25,9 +25,11 @@ import {
   ChevronRight,
   MessageSquare,
   LogOut,
-  Notebook
+  Notebook,
+  QrCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { INITIAL_INVOICES, Invoice, InvoiceItem, SUGGESTED_ITEMS, UdhaarEntry } from './data';
 
 export default function App() {
@@ -42,9 +44,14 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // State for shop configuration
-  const [shopName, setShopName] = useState('Verma General Store');
+  const [shopName, setShopName] = useState(() => localStorage.getItem('invoicepe_shop_name') || 'Verma General Store');
   const [isEditingShop, setIsEditingShop] = useState(false);
   const [customShopInput, setCustomShopInput] = useState(shopName);
+
+  // UPI configuration
+  const [upiId, setUpiId] = useState(() => localStorage.getItem('invoicepe_upi_id') || 'shopname@upi');
+  const [customUpiInput, setCustomUpiInput] = useState(upiId);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Invoices list state
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -502,24 +509,40 @@ export default function App() {
     }
   };
 
-  // Save the custom shop name and sync to auth metadata if user is logged in
-  const handleSaveShopName = async (e: React.FormEvent) => {
+  // Save custom shop configuration and UPI details
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     const newName = customShopInput.trim();
-    if (newName) {
-      setShopName(newName);
-      setIsEditingShop(false);
-      showToast(`Shop name updated to ${newName}`, 'success');
+    const newUpi = customUpiInput.trim();
+    if (!newName) {
+      showToast('Shop name updated nahi kiya ja sakta, kripya sahi naam bharein!', 'info');
+      return;
+    }
+    if (!newUpi) {
+      showToast('UPI ID khali nahi chhodi ja sakti, kripya sahi UPI ID bharein!', 'info');
+      return;
+    }
 
-      if (user) {
-        try {
-          const { error } = await supabase.auth.updateUser({
-            data: { shop_name: newName }
-          });
-          if (error) console.error('Error syncing shop_name to Supabase user metadata:', error);
-        } catch (err) {
-          console.error('Error syncing shop_name:', err);
+    setShopName(newName);
+    setUpiId(newUpi);
+    localStorage.setItem('invoicepe_shop_name', newName);
+    localStorage.setItem('invoicepe_upi_id', newUpi);
+    setIsSettingsOpen(false);
+    showToast(`Vyapaar profile aur UPI ID successfully update hui!`, 'success');
+
+    if (user) {
+      try {
+        const { error } = await supabase.auth.updateUser({
+          data: { 
+            shop_name: newName,
+            upi_id: newUpi
+          }
+        });
+        if (error) {
+          console.error('Error syncing settings to Supabase user metadata:', error);
         }
+      } catch (err) {
+        console.error('Error syncing settings:', err);
       }
     }
   };
@@ -695,6 +718,11 @@ export default function App() {
           setShopName(metaShop);
           setCustomShopInput(metaShop);
         }
+        const metaUpi = sessionUser.user_metadata?.upi_id;
+        if (metaUpi) {
+          setUpiId(metaUpi);
+          setCustomUpiInput(metaUpi);
+        }
         startupDatabaseTest(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaarsFromSupabase(true, sessionUser);
@@ -717,6 +745,11 @@ export default function App() {
         if (metaShop) {
           setShopName(metaShop);
           setCustomShopInput(metaShop);
+        }
+        const metaUpi = sessionUser.user_metadata?.upi_id;
+        if (metaUpi) {
+          setUpiId(metaUpi);
+          setCustomUpiInput(metaUpi);
         }
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaarsFromSupabase(true, sessionUser);
@@ -1256,6 +1289,40 @@ export default function App() {
       const formattedGrandTotal = Math.round(grandTotal).toLocaleString('en-IN');
       doc.text("₹" + formattedGrandTotal, 190, y + 23, { align: "right" });
 
+      // Embed UPI QR code onto PDF from active modal canvas element
+      const qrCanvas = document.getElementById('invoice-qr-canvas') as HTMLCanvasElement;
+      if (qrCanvas) {
+        try {
+          const imgData = qrCanvas.toDataURL('image/png');
+          // Draw QR card border & fill (width 95, height 28)
+          doc.setDrawColor(240, 240, 240);
+          doc.setFillColor(254, 247, 240); 
+          doc.rect(15, y, 95, 28, 'FD'); 
+
+          // Insert QR Canvas Image (24x24 inside the 95x28 container)
+          doc.addImage(imgData, 'PNG', 17, y + 2, 24, 24);
+
+          // Add helper text in orange and neutral gray
+          doc.setTextColor(249, 115, 22); 
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(8);
+          doc.text("SCAN TO PAY INSTANTLY VIA UPI", 45, y + 7);
+
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7.5);
+          doc.setTextColor(60, 60, 60);
+          doc.text(`Store: ${shopName}`, 45, y + 12);
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7);
+          doc.setTextColor(110, 110, 110);
+          doc.text(`UPI ID: ${upiId}`, 45, y + 17);
+          doc.text("Scan to pay instantly via any UPI app", 45, y + 22);
+        } catch (qrError) {
+          console.error("Error embedding QR code in PDF:", qrError);
+        }
+      }
+
       // Draw footer line at the bottom of the page
       doc.setDrawColor(240, 240, 240);
       doc.line(15, 275, 195, 275);
@@ -1509,41 +1576,23 @@ export default function App() {
             {/* Shop context selector & Logout btn */}
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 text-right">
-                {isEditingShop ? (
-                  <form onSubmit={handleSaveShopName} className="flex items-center gap-1">
-                    <input
-                      type="text"
-                      value={customShopInput}
-                      onChange={(e) => setCustomShopInput(e.target.value)}
-                      className="w-24 bg-slate-50 border border-orange-350 rounded px-1.5 py-0.5 text-xs font-semibold focus:outline-none focus:border-orange-500 text-slate-800"
-                      maxLength={25}
-                      autoFocus
-                    />
-                    <button type="submit" className="bg-orange-500 text-white rounded p-0.5 hover:bg-orange-650">
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                    <button type="button" onClick={() => setIsEditingShop(false)} className="bg-slate-200 text-slate-700 rounded p-0.5 hover:bg-slate-350">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </form>
-                ) : (
-                  <div 
-                    onClick={() => {
-                      setCustomShopInput(shopName);
-                      setIsEditingShop(true);
-                    }}
-                    className="flex items-center gap-1.5 cursor-pointer group"
-                    title="Edit Shop Name"
-                  >
-                    <div className="text-right">
-                      <p className="text-[7.5px] text-slate-400 font-extrabold uppercase tracking-widest">Store Owner</p>
-                      <p className="font-bold text-[11px] text-slate-800 group-hover:text-orange-500 transition-colors truncate max-w-[80px]">{shopName}</p>
-                    </div>
-                    <div className="w-7 h-7 rounded-full bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 font-extrabold text-[9px] shrink-0">
-                      {shopName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'SP'}
-                    </div>
+                <div 
+                  onClick={() => {
+                    setCustomShopInput(shopName);
+                    setCustomUpiInput(upiId);
+                    setIsSettingsOpen(true);
+                  }}
+                  className="flex items-center gap-2 cursor-pointer group bg-orange-50/50 hover:bg-orange-50 px-2.5 py-1.5 rounded-xl border border-orange-100 transition-all select-none"
+                  title="Vyapaar Settings & UPI Profile"
+                >
+                  <div className="text-right">
+                    <p className="text-[7.5px] text-orange-600 font-extrabold uppercase tracking-widest leading-none">Settings</p>
+                    <p className="font-extrabold text-[11px] text-slate-800 group-hover:text-orange-650 transition-colors truncate max-w-[100px] mt-0.5">{shopName}</p>
                   </div>
-                )}
+                  <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center text-white font-black text-[9px] shrink-0 group-hover:scale-105 transition-all">
+                    {shopName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'SP'}
+                  </div>
+                </div>
               </div>
 
               {/* Header Logout Button */}
@@ -2268,6 +2317,109 @@ CREATE TABLE invoice_items (
           </button>
         </footer>
 
+        {/* DIALOG FOR MERCHANT SETTINGS & UPI */}
+        <AnimatePresence>
+          {isSettingsOpen && (
+            <>
+              {/* Backplate backdrop overlay */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsSettingsOpen(false)}
+                className="absolute inset-0 bg-neutral-950 z-50 cursor-pointer"
+              />
+
+              {/* Form container drawer panel slide-up */}
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                className="absolute left-0 right-0 bottom-0 max-h-[85vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
+              >
+                {/* Header of Drawer */}
+                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10 font-sans">
+                  <div>
+                    <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide flex items-center gap-1.5 text-orange-600">
+                      <QrCode className="w-4 h-4 text-orange-500 animate-pulse" />
+                      <span>व्यापार सेटिंग्स (Merchant Settings)</span>
+                    </h3>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Configure your shop/store details & UPI address</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-600 transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Form main context */}
+                <form onSubmit={handleSaveSettings} className="p-5 space-y-4 flex-1 pb-10 font-sans">
+                  
+                  <div className="space-y-4 bg-orange-50/20 p-4 rounded-xl border border-orange-100">
+                    <h4 className="text-[11px] font-bold text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
+                      <Store className="w-3.5 h-3.5 text-orange-500" />
+                      <span>व्यापार प्रोफाइल (Vyapaar Profile)</span>
+                    </h4>
+
+                    {/* Shop Name input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">दुकान / व्यापार का नाम (Vyapaar Name) *</label>
+                      <input
+                        type="text"
+                        required
+                        value={customShopInput}
+                        onChange={(e) => setCustomShopInput(e.target.value)}
+                        placeholder="जैसे: Verma General Store"
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
+                      />
+                    </div>
+
+                    {/* UPI ID input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
+                        UPI ID (भुगतान के लिए) * 
+                        <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे shopname@upi, 9876543210@paytm)</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                          <QrCode className="w-3.5 h-3.5 text-orange-500" />
+                        </span>
+                        <input
+                          type="text"
+                          required
+                          value={customUpiInput}
+                          onChange={(e) => setCustomUpiInput(e.target.value.trim())}
+                          placeholder="जैसे: merchant@upi"
+                          className="w-full text-xs pl-9 pr-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-mono font-bold text-slate-850"
+                        />
+                      </div>
+                      <p className="text-[9px] text-orange-700 mt-2 leading-normal font-medium">
+                        * Please verify your UPI ID carefully. All generated invoice payment QRs will route directly to this UPI address.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full bg-orange-500 hover:bg-orange-600 py-3.5 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md active:scale-[0.98]"
+                    >
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>सेटिंग्स सुरक्षित करें / SAVE SETTINGS</span>
+                    </button>
+                  </div>
+
+                </form>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
         {/* DIALOG FOR NEW UDHAAR ENTRY */}
         <AnimatePresence>
           {isUdhaarFormOpen && (
@@ -2801,6 +2953,38 @@ CREATE TABLE invoice_items (
                           }`}>
                             {selectedReceipt.status === 'Paid' ? 'PAID / नकद' : 'PENDING / उधार'}
                           </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* UPI QR CODE DISPLAY SECTION */}
+                  {(() => {
+                    const qrSubtotal = selectedReceipt.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+                    const qrGstRate = selectedReceipt.gstRate !== undefined ? selectedReceipt.gstRate : 18;
+                    const qrGstAmount = selectedReceipt.gstAmount !== undefined ? selectedReceipt.gstAmount : qrSubtotal * (qrGstRate / 100);
+                    const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
+                    const upiDeepLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${qrGrandTotal}&cu=INR&tn=${encodeURIComponent(`Invoice-${selectedReceipt.invoiceNo}`)}`;
+
+                    return (
+                      <div className="flex flex-col items-center justify-center p-4 bg-orange-50/40 rounded-2xl border border-orange-100/50 space-y-2.5 mt-2">
+                        <div className="p-2.5 bg-white rounded-xl shadow-xs border border-orange-150 flex items-center justify-center">
+                          <QRCodeCanvas
+                            id="invoice-qr-canvas"
+                            value={upiDeepLink}
+                            size={120}
+                            level="H"
+                            includeMargin={true}
+                          />
+                        </div>
+                        <div className="text-center font-sans">
+                          <p className="text-[10px] font-extrabold text-orange-950 flex items-center justify-center gap-1">
+                            <QrCode className="w-3 h-3 text-orange-500 animate-pulse" />
+                            <span>Scan to pay instantly via any UPI app</span>
+                          </p>
+                          <p className="text-[9px] text-slate-400 font-mono font-bold mt-0.5">
+                            UPI ID: {upiId} • PAY TO MERCHANT
+                          </p>
                         </div>
                       </div>
                     );
