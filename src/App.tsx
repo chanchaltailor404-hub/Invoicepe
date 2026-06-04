@@ -49,8 +49,8 @@ export default function App() {
   const [customShopInput, setCustomShopInput] = useState(shopName);
 
   // UPI configuration
-  const [upiId, setUpiId] = useState(() => localStorage.getItem('invoicepe_upi_id') || 'shopname@upi');
-  const [customUpiInput, setCustomUpiInput] = useState(upiId);
+  const [upiId, setUpiId] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
+  const [customUpiInput, setCustomUpiInput] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Invoices list state
@@ -2958,43 +2958,70 @@ CREATE TABLE invoice_items (
                     );
                   })()}
 
-                  {/* UPI QR CODE DISPLAY SECTION */}
-                  {(() => {
-                    const qrSubtotal = selectedReceipt.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
-                    const qrGstRate = selectedReceipt.gstRate !== undefined ? selectedReceipt.gstRate : 18;
-                    const qrGstAmount = selectedReceipt.gstAmount !== undefined ? selectedReceipt.gstAmount : qrSubtotal * (qrGstRate / 100);
-                    const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
-                    const upiDeepLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${qrGrandTotal}&cu=INR&tn=${encodeURIComponent(`Invoice-${selectedReceipt.invoiceNo}`)}`;
-
-                    return (
-                      <div className="flex flex-col items-center justify-center p-4 bg-orange-50/40 rounded-2xl border border-orange-100/50 space-y-2.5 mt-2">
-                        <div className="p-2.5 bg-white rounded-xl shadow-xs border border-orange-150 flex items-center justify-center">
-                          <QRCodeCanvas
-                            id="invoice-qr-canvas"
-                            value={upiDeepLink}
-                            size={120}
-                            level="H"
-                            includeMargin={true}
-                          />
-                        </div>
-                        <div className="text-center font-sans">
-                          <p className="text-[10px] font-extrabold text-orange-950 flex items-center justify-center gap-1">
-                            <QrCode className="w-3 h-3 text-orange-500 animate-pulse" />
-                            <span>Scan to pay instantly via any UPI app</span>
-                          </p>
-                          <p className="text-[9px] text-slate-400 font-mono font-bold mt-0.5">
-                            UPI ID: {upiId} • PAY TO MERCHANT
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                   {/* GST, backup notes and safety */}
                   <div className="text-[10px] text-neutral-400 leading-snug text-center space-y-1 pt-2">
                     <p>🇮🇳 Generated via InvoicePe Digital Khaata Book.</p>
                     <p>Thank you for doing business with us!</p>
                   </div>
+
+                  {/* UPI QR CODE DISPLAY OR CONFIGURATION BANNER */}
+                  {(() => {
+                    const hasUpiSet = upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi';
+
+                    if (hasUpiSet) {
+                      const qrSubtotal = selectedReceipt.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+                      const qrGstRate = selectedReceipt.gstRate !== undefined ? selectedReceipt.gstRate : 18;
+                      const qrGstAmount = selectedReceipt.gstAmount !== undefined ? selectedReceipt.gstAmount : qrSubtotal * (qrGstRate / 100);
+                      const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
+                      const upiDeepLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${qrGrandTotal}&cu=INR&tn=${encodeURIComponent(`Invoice-${selectedReceipt.invoiceNo}`)}`;
+
+                      return (
+                        <div className="flex flex-col items-center justify-center p-4 bg-orange-50/40 rounded-2xl border border-orange-100/50 space-y-2.5 mt-2.5 mb-2">
+                          <div className="p-2.5 bg-white rounded-xl shadow-xs border border-orange-150 flex items-center justify-center">
+                            <QRCodeCanvas
+                              id="invoice-qr-canvas"
+                              value={upiDeepLink}
+                              size={120}
+                              level="H"
+                              includeMargin={true}
+                            />
+                          </div>
+                          <div className="text-center font-sans">
+                            <p className="text-[10px] font-extrabold text-orange-950 flex items-center justify-center gap-1">
+                              <QrCode className="w-3 h-3 text-orange-500 animate-pulse" />
+                              <span>Scan to pay instantly via any UPI app</span>
+                            </p>
+                            <p className="text-[9px] text-slate-400 font-mono font-bold mt-0.5">
+                              UPI ID: {upiId} • PAY TO MERCHANT
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div 
+                          onClick={() => {
+                            setCustomShopInput(shopName);
+                            setCustomUpiInput(upiId || '');
+                            setIsSettingsOpen(true);
+                          }}
+                          className="mt-2.5 mb-2 p-3.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-2xl cursor-pointer transition-all flex items-center gap-3 group justify-between select-none"
+                          title="Click to configure your UPI ID"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-orange-500 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                              <QrCode className="w-4 h-4" />
+                            </div>
+                            <div className="text-left font-sans">
+                              <p className="text-[11px] font-extrabold text-orange-850 leading-snug">Add your UPI ID in Settings to show payment QR</p>
+                              <p className="text-[9.5px] text-orange-600 font-bold">Tap here to set up instant payments</p>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-orange-500 group-hover:translate-x-0.5 transition-transform" />
+                        </div>
+                      );
+                    }
+                  })()}
 
                   {/* Share action buttons inside receipt */}
                   <div className="pt-2 grid grid-cols-2 gap-2">
