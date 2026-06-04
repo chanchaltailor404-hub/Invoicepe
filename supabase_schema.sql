@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS shop_profiles (
     gstin TEXT,
     referral_code TEXT UNIQUE,
     pro_expires_at TIMESTAMPTZ,
+    pro_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -204,6 +205,7 @@ CREATE POLICY "Users can insert referrals they received or made" ON referrals
 -- Ensure columns exist in case table is already initialized
 ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
 ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS pro_expires_at TIMESTAMPTZ;
+ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS pro_until TIMESTAMPTZ;
 
 
 

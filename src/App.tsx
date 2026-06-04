@@ -81,6 +81,7 @@ export default function App() {
   const [totalReferrals, setTotalReferrals] = useState(0);
   const [freeMonths, setFreeMonths] = useState(0);
   const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
+  const [proUntil, setProUntil] = useState<string | null>(() => localStorage.getItem('invoicepe_pro_until') || null);
 
   const generateReferralCode = (name: string): string => {
     const cleanName = (name || 'USER')
@@ -197,6 +198,14 @@ export default function App() {
 
   // Quick Receipt preview state
   const [selectedReceipt, setSelectedReceipt] = useState<Invoice | null>(null);
+
+  // Check if user is currently Pro
+  const isPro = useMemo(() => {
+    if (!proUntil) return false;
+    const expiryDate = new Date(proUntil);
+    const today = new Date();
+    return today < expiryDate;
+  }, [proUntil]);
 
   // Calculated metrics
   const metrics = useMemo(() => {
@@ -356,6 +365,8 @@ export default function App() {
         setCustomShopAddressInput(data.address || '');
 
         setReferralCode(data.referral_code || '');
+        setProExpiresAt(data.pro_expires_at || null);
+        setProUntil(data.pro_until || null);
 
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
@@ -366,6 +377,11 @@ export default function App() {
         localStorage.setItem('invoicepe_shop_address', data.address || '');
         if (data.referral_code) {
           localStorage.setItem('invoicepe_referral_code', data.referral_code);
+        }
+        if (data.pro_until) {
+          localStorage.setItem('invoicepe_pro_until', data.pro_until);
+        } else {
+          localStorage.removeItem('invoicepe_pro_until');
         }
       }
 
@@ -644,7 +660,8 @@ export default function App() {
         upi_id: '',
         gstin: '',
         referral_code: generatedCode,
-        pro_expires_at: proExpiry
+        pro_expires_at: proExpiry,
+        pro_until: proExpiry
       };
 
       const { data: createdProfile, error: profileErr } = await supabase
@@ -672,25 +689,29 @@ export default function App() {
           console.error('Error logging referral record:', refError);
         } else {
           console.log('Referral model logged!');
-          // Add 1 month to referrer's pro_expires_at
+          // Add 30 days to referrer's pro_until & pro_expires_at
           const { data: referrerProfile } = await supabase
             .from('shop_profiles')
-            .select('pro_expires_at')
+            .select('pro_until, pro_expires_at')
             .eq('user_id', referrerUserId)
             .maybeSingle();
 
           let targetExpiry = new Date();
-          if (referrerProfile?.pro_expires_at) {
-            const currentExpiry = new Date(referrerProfile.pro_expires_at);
+          const currentExpiryStr = referrerProfile?.pro_until || referrerProfile?.pro_expires_at;
+          if (currentExpiryStr) {
+            const currentExpiry = new Date(currentExpiryStr);
             if (currentExpiry > targetExpiry) {
               targetExpiry = currentExpiry;
             }
           }
-          targetExpiry.setMonth(targetExpiry.getMonth() + 1);
+          targetExpiry.setDate(targetExpiry.getDate() + 30);
 
           await supabase
             .from('shop_profiles')
-            .update({ pro_expires_at: targetExpiry.toISOString() })
+            .update({ 
+              pro_until: targetExpiry.toISOString(),
+              pro_expires_at: targetExpiry.toISOString() 
+            })
             .eq('user_id', referrerUserId);
         }
       }
@@ -1203,6 +1224,11 @@ export default function App() {
 
     if (!user) {
       showToast('Please log in first to create invoices.', 'info');
+      return;
+    }
+
+    if (!isPro && invoices.length >= 10) {
+      showToast('Naye Invoices nahi banaye ja sakte! Free Plan limit (10 Invoices) reached. Kripya dosto ko refer karein PRO free me active karne ke liye.', 'info');
       return;
     }
 
@@ -2663,17 +2689,33 @@ CREATE TABLE invoice_items (
           <>
             {/* Welcome Message */}
             <section className="px-1 pt-1 flex-none flex flex-col gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 justify-between md:justify-start">
                 <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Namaste, {shopName.split(' ')[0]}!</h2>
-                {(freeMonths > 0 || localStorage.getItem('invoicepe_used_referral') === 'true') && (
-                  <span className="text-[8px] tracking-widest font-black uppercase bg-orange-500 text-white px-2 py-1 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-orange-400">
-                    <Gift className="w-2.5 h-2.5 shrink-0" />
-                    <span>PRO ACTIVE</span>
+                {isPro && (
+                  <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-emerald-400">
+                    <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
+                    <span>PRO ACTIVE until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Expired'}</span>
                   </span>
                 )}
               </div>
               <p className="text-slate-500 text-xs font-medium leading-none">Here is what's happening with your store today.</p>
             </section>
+
+            {!isPro && (
+              <div className="bg-orange-50/50 border border-orange-100 rounded-2xl p-3.5 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                  <span className="text-xs font-extrabold text-orange-950">Free Plan: {invoices.length}/10 invoices</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="text-[9.5px] bg-orange-100 hover:bg-orange-200 text-orange-900 border border-orange-200 font-bold px-2.5 py-1 rounded-xl transition-all cursor-pointer"
+                >
+                  Upgrade via Settings ✨
+                </button>
+              </div>
+            )}
 
             {/* DYNAMIC METRICS CARDS */}
             <div className="grid grid-cols-2 gap-4" id="metrics-grid">
@@ -3376,6 +3418,33 @@ CREATE TABLE invoice_items (
 
                 {/* Form main context */}
                 <form onSubmit={handleSaveSettings} className="p-5 space-y-4 flex-1 pb-10 font-sans">
+
+                  {/* Subscription Plan Status Card */}
+                  <div className={`p-4 rounded-xl border ${isPro ? 'bg-emerald-50/30 border-emerald-100 text-emerald-950' : 'bg-orange-55/10 border-orange-100 text-orange-950'} flex items-center justify-between`}>
+                    <div className="space-y-0.5">
+                      <p className="text-[9.5px] uppercase tracking-wider font-extrabold text-slate-400">Subscription Plan</p>
+                      {isPro ? (
+                        <p className="text-xs font-black text-emerald-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>Pro Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs font-black text-orange-650 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                          <span>Free Plan</span>
+                        </p>
+                      )}
+                    </div>
+                    {isPro ? (
+                      <span className="text-[10px] font-black uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-xl border border-emerald-400 shadow-sm leading-none shrink-0">
+                        PRO
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-black uppercase bg-orange-500 text-white px-2.5 py-1.5 rounded-xl border border-orange-400 shadow-sm leading-none shrink-0">
+                        FREE
+                      </span>
+                    )}
+                  </div>
                   
                   <div className="space-y-4 bg-orange-50/20 p-4 rounded-xl border border-orange-100">
                     <h4 className="text-[11px] font-bold text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
