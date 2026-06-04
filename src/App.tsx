@@ -61,8 +61,14 @@ export default function App() {
   const [customShopAddressInput, setCustomShopAddressInput] = useState(shopAddress);
 
   // UPI configuration
-  const [upiId, setUpiId] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
-  const [customUpiInput, setCustomUpiInput] = useState(() => localStorage.getItem('invoicepe_upi_id') || '');
+  const [upiId, setUpiId] = useState(() => {
+    const stored = localStorage.getItem('invoicepe_upi_id');
+    return (stored === 'shopname@upi' ? '' : (stored || ''));
+  });
+  const [customUpiInput, setCustomUpiInput] = useState(() => {
+    const stored = localStorage.getItem('invoicepe_upi_id');
+    return (stored === 'shopname@upi' ? '' : (stored || ''));
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // GSTIN configuration
@@ -266,7 +272,7 @@ export default function App() {
           owner_name: currentUser.user_metadata?.owner_name || nameForCode,
           phone: currentUser.user_metadata?.phone || '',
           address: currentUser.user_metadata?.address || '',
-          upi_id: currentUser.user_metadata?.upi_id || 'shopname@upi',
+          upi_id: currentUser.user_metadata?.upi_id || '',
           gstin: currentUser.user_metadata?.gstin || '',
           referral_code: generatedCode
         };
@@ -289,8 +295,9 @@ export default function App() {
         setShopName(data.shop_name);
         setCustomShopInput(data.shop_name);
 
-        setUpiId(data.upi_id);
-        setCustomUpiInput(data.upi_id);
+        const loadedUpi = data.upi_id === 'shopname@upi' ? '' : (data.upi_id || '');
+        setUpiId(loadedUpi);
+        setCustomUpiInput(loadedUpi);
 
         setGstin(data.gstin || '');
         setCustomGstinInput(data.gstin || '');
@@ -308,7 +315,7 @@ export default function App() {
 
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
-        localStorage.setItem('invoicepe_upi_id', data.upi_id);
+        localStorage.setItem('invoicepe_upi_id', loadedUpi);
         localStorage.setItem('invoicepe_gstin', data.gstin || '');
         localStorage.setItem('invoicepe_owner_name', data.owner_name || '');
         localStorage.setItem('invoicepe_shop_phone', data.phone || '');
@@ -590,7 +597,7 @@ export default function App() {
         owner_name: shopName.trim().split(' ')[0] || 'Merchant',
         phone: '',
         address: '',
-        upi_id: 'shopname@upi',
+        upi_id: '',
         gstin: '',
         referral_code: generatedCode,
         pro_expires_at: proExpiry
@@ -776,10 +783,6 @@ export default function App() {
 
     if (!newName) {
       showToast('Shop name updated nahi kiya ja sakta, kripya sahi naam bharein!', 'info');
-      return;
-    }
-    if (!newUpi) {
-      showToast('UPI ID khali nahi chhodi ja sakti, kripya sahi UPI ID bharein!', 'info');
       return;
     }
 
@@ -1436,19 +1439,23 @@ export default function App() {
       const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
       
       const statusText = (inv.status || 'PENDING').toUpperCase();
-      const currentUpi = upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi' ? upiId : 'shopname@upi';
       const encodedShopName = encodeURIComponent(shopName);
+
+      let upiPaymentSection = '';
+      if (hasUpiSet) {
+        upiPaymentSection = `💳 Pay instantly via UPI:\n` +
+          `UPI ID: ${upiId}\n` +
+          `Amount: ₹${inv.totalAmount}\n` +
+          `Or click to pay:\n` +
+          `gpay://upi/pay?pa=${upiId}&pn=${encodedShopName}&am=${inv.totalAmount}&cu=INR\n`;
+      }
 
       const text = `🧾 Invoice from ${shopName}\n` +
         `Invoice No: ${inv.invoiceNo}\n` +
         `Customer: ${inv.customerName}\n` +
         `Amount: ₹${inv.totalAmount}\n` +
         `Status: ${statusText}\n` +
-        `💳 Pay instantly via UPI:\n` +
-        `UPI ID: ${currentUpi}\n` +
-        `Amount: ₹${inv.totalAmount}\n` +
-        `Or click to pay:\n` +
-        `gpay://upi/pay?pa=${currentUpi}&pn=${encodedShopName}&am=${inv.totalAmount}&cu=INR\n` +
+        upiPaymentSection +
         `Thank you for shopping with us!\n` +
         `Powered by InvoicePe 🧾`;
 
@@ -3347,7 +3354,7 @@ CREATE TABLE invoice_items (
                     {/* UPI ID input */}
                     <div>
                       <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
-                        UPI ID (भुगतान के लिए) * 
+                        UPI ID (Optional / वैकल्पिक)
                         <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे shopname@upi, 9876543210@paytm)</span>
                       </label>
                       <div className="relative">
@@ -3356,15 +3363,14 @@ CREATE TABLE invoice_items (
                         </span>
                         <input
                           type="text"
-                          required
                           value={customUpiInput}
                           onChange={(e) => setCustomUpiInput(e.target.value.trim())}
-                          placeholder="जैसे: merchant@upi"
+                          placeholder="जैसे: merchant@upi (Optional)"
                           className="w-full text-xs pl-9 pr-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-mono font-bold text-slate-850"
                         />
                       </div>
-                      <p className="text-[9px] text-orange-700 mt-2 leading-normal font-medium">
-                        * Please verify your UPI ID carefully. All generated invoice payment QRs will route directly to this UPI address.
+                      <p className="text-[9.5px] text-orange-700 mt-2 leading-normal font-bold">
+                        💡 Optional — only fill if you want customers to pay via UPI
                       </p>
                     </div>
                   </div>
@@ -4242,32 +4248,7 @@ CREATE TABLE invoice_items (
                         </div>
                       );
                     } else {
-                      return (
-                        <div 
-                          onClick={() => {
-                            setCustomShopInput(shopName);
-                            setCustomUpiInput(upiId || '');
-                            setCustomGstinInput(gstin || '');
-                            setCustomOwnerInput(ownerName || '');
-                            setCustomShopPhoneInput(shopPhone || '');
-                            setCustomShopAddressInput(shopAddress || '');
-                            setIsSettingsOpen(true);
-                          }}
-                          className="mt-2.5 mb-2 p-3.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-2xl cursor-pointer transition-all flex items-center gap-3 group justify-between select-none"
-                          title="Click to configure your UPI ID"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-orange-500 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
-                              <QrCode className="w-4 h-4" />
-                            </div>
-                            <div className="text-left font-sans">
-                              <p className="text-[11px] font-extrabold text-orange-850 leading-snug">Add your UPI ID in Settings to show payment QR</p>
-                              <p className="text-[9.5px] text-orange-600 font-bold">Tap here to set up instant payments</p>
-                            </div>
-                          </div>
-                          <ChevronRight className="w-4 h-4 text-orange-500 group-hover:translate-x-0.5 transition-transform" />
-                        </div>
-                      );
+                      return null;
                     }
                   })()}
 
