@@ -28,7 +28,8 @@ import {
   Notebook,
   QrCode,
   Mic,
-  MicOff
+  MicOff,
+  Gift
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -67,6 +68,22 @@ export default function App() {
   // GSTIN configuration
   const [gstin, setGstin] = useState(() => localStorage.getItem('invoicepe_gstin') || '');
   const [customGstinInput, setCustomGstinInput] = useState(() => localStorage.getItem('invoicepe_gstin') || '');
+
+  // Referral states
+  const [referralCode, setReferralCode] = useState(() => localStorage.getItem('invoicepe_referral_code') || '');
+  const [enteredReferralCode, setEnteredReferralCode] = useState('');
+  const [totalReferrals, setTotalReferrals] = useState(0);
+  const [freeMonths, setFreeMonths] = useState(0);
+  const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
+
+  const generateReferralCode = (name: string): string => {
+    const cleanName = (name || 'USER')
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '')
+      .substring(0, 6);
+    const suffix = Math.floor(Math.random() * 90) + 10;
+    return `${cleanName || 'INVOICE'}${suffix}`;
+  };
 
   // GST Report configuration
   const [isGstReportOpen, setIsGstReportOpen] = useState(false);
@@ -226,19 +243,49 @@ export default function App() {
     if (!currentUser) return;
     try {
       console.log('Fetching shop profile for user_id:', currentUser.id);
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('shop_profiles')
         .select('*')
         .eq('user_id', currentUser.id)
         .maybeSingle();
 
       if (error) {
-        console.warn('Error fetching shop profile (it might not exist yet):', error);
+        console.warn('Error fetching shop profile:', error);
         return;
       }
 
+      // If no profile exists, create a default unique one!
+      if (!data) {
+        console.log('No shop profile entry found. Inserting default shop profile entry...');
+        const nameForCode = currentUser.user_metadata?.owner_name || currentUser.user_metadata?.shop_name || currentUser.email?.split('@')[0] || 'MERCHANT';
+        const generatedCode = generateReferralCode(nameForCode);
+        
+        const defaultProfile = {
+          user_id: currentUser.id,
+          shop_name: currentUser.user_metadata?.shop_name || 'Verma General Store',
+          owner_name: currentUser.user_metadata?.owner_name || nameForCode,
+          phone: currentUser.user_metadata?.phone || '',
+          address: currentUser.user_metadata?.address || '',
+          upi_id: currentUser.user_metadata?.upi_id || 'shopname@upi',
+          gstin: currentUser.user_metadata?.gstin || '',
+          referral_code: generatedCode
+        };
+
+        const { data: insertedData, error: insertError } = await supabase
+          .from('shop_profiles')
+          .insert(defaultProfile)
+          .select()
+          .maybeSingle();
+
+        if (insertError) {
+          console.error('Error inserting default shop_profile:', insertError);
+        } else if (insertedData) {
+          data = insertedData;
+        }
+      }
+
       if (data) {
-        console.log('Loaded shop profile:', data);
+        console.log('Using shop profile data:', data);
         setShopName(data.shop_name);
         setCustomShopInput(data.shop_name);
 
@@ -257,6 +304,8 @@ export default function App() {
         setShopAddress(data.address || '');
         setCustomShopAddressInput(data.address || '');
 
+        setReferralCode(data.referral_code || '');
+
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
         localStorage.setItem('invoicepe_upi_id', data.upi_id);
@@ -264,9 +313,22 @@ export default function App() {
         localStorage.setItem('invoicepe_owner_name', data.owner_name || '');
         localStorage.setItem('invoicepe_shop_phone', data.phone || '');
         localStorage.setItem('invoicepe_shop_address', data.address || '');
-      } else {
-        console.log('No shop profile entry found in database for this user.');
+        if (data.referral_code) {
+          localStorage.setItem('invoicepe_referral_code', data.referral_code);
+        }
       }
+
+      // Fetch referrals where current user is the referrer
+      const { data: refsData, error: refsErr } = await supabase
+        .from('referrals')
+        .select('*')
+        .eq('referrer_user_id', currentUser.id);
+
+      if (!refsErr && refsData) {
+        setTotalReferrals(refsData.length);
+        setFreeMonths(refsData.length);
+      }
+
     } catch (err) {
       console.error('Exception fetching shop profile:', err);
     }
@@ -496,6 +558,96 @@ export default function App() {
     }
   };
 
+  const handleRegisterReferralAndProfile = async (newUser: any, enteredCode: string) => {
+    if (!newUser) return;
+    try {
+      let referrerUserId = null;
+      const cleanCode = enteredCode.trim().toUpperCase();
+      if (cleanCode) {
+        const { data: profileWithCode, error: lookupErr } = await supabase
+          .from('shop_profiles')
+          .select('user_id')
+          .eq('referral_code', cleanCode)
+          .maybeSingle();
+
+        if (!lookupErr && profileWithCode) {
+          referrerUserId = profileWithCode.user_id;
+          console.log('Valid referral code found for user_id:', referrerUserId);
+        } else {
+          console.warn('No user found matching referral code:', cleanCode);
+        }
+      }
+
+      const generatedCode = generateReferralCode(shopName.trim());
+      // New user gets 1 month free Pro if referred
+      const proExpiry = referrerUserId 
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() 
+        : null;
+
+      const defaultProfile = {
+        user_id: newUser.id,
+        shop_name: shopName.trim() || 'Verma General Store',
+        owner_name: shopName.trim().split(' ')[0] || 'Merchant',
+        phone: '',
+        address: '',
+        upi_id: 'shopname@upi',
+        gstin: '',
+        referral_code: generatedCode,
+        pro_expires_at: proExpiry
+      };
+
+      const { data: createdProfile, error: profileErr } = await supabase
+        .from('shop_profiles')
+        .upsert(defaultProfile, { onConflict: 'user_id' })
+        .select()
+        .maybeSingle();
+
+      if (profileErr) {
+        console.error('Error upserting shop profile on signup:', profileErr);
+      }
+
+      if (referrerUserId) {
+        const referralRecord = {
+          referrer_user_id: referrerUserId,
+          referred_user_id: newUser.id,
+          referral_code: cleanCode
+        };
+
+        const { error: refError } = await supabase
+          .from('referrals')
+          .insert(referralRecord);
+
+        if (refError) {
+          console.error('Error logging referral record:', refError);
+        } else {
+          console.log('Referral model logged!');
+          // Add 1 month to referrer's pro_expires_at
+          const { data: referrerProfile } = await supabase
+            .from('shop_profiles')
+            .select('pro_expires_at')
+            .eq('user_id', referrerUserId)
+            .maybeSingle();
+
+          let targetExpiry = new Date();
+          if (referrerProfile?.pro_expires_at) {
+            const currentExpiry = new Date(referrerProfile.pro_expires_at);
+            if (currentExpiry > targetExpiry) {
+              targetExpiry = currentExpiry;
+            }
+          }
+          targetExpiry.setMonth(targetExpiry.getMonth() + 1);
+
+          await supabase
+            .from('shop_profiles')
+            .update({ pro_expires_at: targetExpiry.toISOString() })
+            .eq('user_id', referrerUserId);
+        }
+      }
+    } catch (err) {
+      console.error('Error handling post-signup logic:', err);
+    }
+  };
+
   // Handle Authentication submit (Login / SignUp)
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -520,9 +672,13 @@ export default function App() {
         if (error) throw error;
         
         if (data.session) {
+          await handleRegisterReferralAndProfile(data.session.user, enteredReferralCode);
+          setEnteredReferralCode('');
           setUser(data.session.user);
           showToast('Welcome to InvoicePe! Your shop is created.', 'success');
         } else if (data.user) {
+          await handleRegisterReferralAndProfile(data.user, enteredReferralCode);
+          setEnteredReferralCode('');
           showToast('Signup successful!', 'success');
           // Email confirmation is enabled on their project
           setAuthError(
@@ -656,7 +812,8 @@ export default function App() {
             phone: newPhone,
             address: newAddress,
             upi_id: newUpi,
-            gstin: newGstin
+            gstin: newGstin,
+            referral_code: referralCode
           }, { onConflict: 'user_id' });
 
         if (profileErr) {
@@ -2072,6 +2229,19 @@ Powered by InvoicePe 🧾`;
                 />
               </div>
 
+              {authMode === 'signup' && (
+                <div className="space-y-1 animate-fadeIn">
+                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Have a referral code? Enter here (optional)</label>
+                  <input
+                    type="text"
+                    value={enteredReferralCode}
+                    onChange={(e) => setEnteredReferralCode(e.target.value.trim().toUpperCase())}
+                    placeholder="e.g. RAMESH20"
+                    className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm uppercase font-mono placeholder:font-sans placeholder:normal-case"
+                  />
+                </div>
+              )}
+
               {/* Remember Me box & Help */}
               <div className="flex items-center justify-between pt-1 select-none">
                 <label className="flex items-center gap-2 cursor-pointer font-bold text-[10.5px] text-slate-500">
@@ -2384,9 +2554,17 @@ CREATE TABLE invoice_items (
         {activeView === 'dashboard' && (
           <>
             {/* Welcome Message */}
-            <section className="px-1 pt-1 flex-none">
-              <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Namaste, {shopName.split(' ')[0]}!</h2>
-              <p className="text-slate-500 text-xs mt-1.5 font-medium leading-none">Here is what's happening with your store today.</p>
+            <section className="px-1 pt-1 flex-none flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Namaste, {shopName.split(' ')[0]}!</h2>
+                {(freeMonths > 0 || localStorage.getItem('invoicepe_used_referral') === 'true') && (
+                  <span className="text-[8px] tracking-widest font-black uppercase bg-orange-500 text-white px-2 py-1 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-orange-400">
+                    <Gift className="w-2.5 h-2.5 shrink-0" />
+                    <span>PRO ACTIVE</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-slate-500 text-xs font-medium leading-none">Here is what's happening with your store today.</p>
             </section>
 
             {/* DYNAMIC METRICS CARDS */}
@@ -3132,6 +3310,51 @@ CREATE TABLE invoice_items (
                         * Please verify your UPI ID carefully. All generated invoice payment QRs will route directly to this UPI address.
                       </p>
                     </div>
+                  </div>
+
+                  {/* REFERRAL SYSTEM SECTION (इनवाइट और कमाएं) */}
+                  <div className="space-y-4 bg-orange-500/5 p-4 rounded-xl border border-orange-200/50">
+                    <h4 className="text-[11px] font-black text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
+                      <Gift className="w-4 h-4 text-orange-500 animate-bounce" />
+                      <span>Referral Program (इनवाइट और कमाएं)</span>
+                    </h4>
+
+                    {/* Big Orange referral code */}
+                    <div className="text-center bg-white p-4 rounded-xl border border-orange-100 shadow-sm space-y-2">
+                      <p className="text-[9.5px] text-slate-450 font-bold uppercase tracking-wider">Aapka Referral Code</p>
+                      <p className="text-3xl font-black text-orange-500 tracking-widest select-all font-sans">
+                        {referralCode || 'RAMESH20'}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-bold leading-relaxed">
+                        Apne dosto ko refer karein. Har signup par aapko aur aapke dost dono ko <span className="text-orange-500 font-extrabold">1 month absolute free Pro status</span> milega!
+                      </p>
+                    </div>
+
+                    {/* Stats counters */}
+                    <div className="grid grid-cols-2 gap-3.5 text-center">
+                      <div className="bg-white/80 p-3 rounded-xl border border-orange-150">
+                        <p className="text-[8.5px] text-slate-450 font-extrabold uppercase tracking-widest leading-none mb-1">Total Referrals Done</p>
+                        <p className="text-xl font-black text-slate-800 font-sans">{totalReferrals}</p>
+                      </div>
+                      <div className="bg-white/80 p-3 rounded-xl border border-orange-150">
+                        <p className="text-[8.5px] text-slate-450 font-extrabold uppercase tracking-widest leading-none mb-1">Free Months Earned</p>
+                        <p className="text-xl font-black text-orange-600 font-sans">{freeMonths}</p>
+                      </div>
+                    </div>
+
+                    {/* Share Referral button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const codeText = referralCode || 'RAMESH20';
+                        const shareMsg = `Namaste! Main InvoicePe use karta hun GST billing ke liye — bilkul free aur bahut aasaan! Mere referral code se signup karo aur 1 mahina free pao: ${codeText} 👉 invoicepe-gamma.vercel.app`;
+                        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}`, '_blank');
+                      }}
+                      className="w-full bg-orange-500 hover:bg-orange-650 active:scale-95 text-white py-3.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm uppercase tracking-widest"
+                    >
+                      <Share2 className="w-4 h-4 stroke-[2.5]" />
+                      <span>Share Referral (व्हाट्सएप भेजें)</span>
+                    </button>
                   </div>
 
                   {/* Submit Button */}

@@ -148,6 +148,7 @@ CREATE POLICY "Users can delete their own udhaar records" ON udhaar
     FOR DELETE USING (auth.uid() = user_id);
 
 
+
 -- 5. Shop Profiles Table (Unique profile per user)
 CREATE TABLE IF NOT EXISTS shop_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -158,6 +159,8 @@ CREATE TABLE IF NOT EXISTS shop_profiles (
     address TEXT,
     upi_id TEXT NOT NULL,
     gstin TEXT,
+    referral_code TEXT UNIQUE,
+    pro_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -176,5 +179,31 @@ CREATE POLICY "Users can update their own shop profile" ON shop_profiles
 
 CREATE POLICY "Users can delete their own shop profile" ON shop_profiles
     FOR DELETE USING (auth.uid() = user_id);
+
+
+-- 6. Referrals Table (To track successfully referred signups)
+CREATE TABLE IF NOT EXISTS referrals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    referrer_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    referred_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+    referral_code TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Enable RLS for referrals
+ALTER TABLE referrals ENABLE ROW LEVEL SECURITY;
+
+-- Referrals Policies
+CREATE POLICY "Users can select referrals they made" ON referrals
+    FOR SELECT USING (auth.uid() = referrer_user_id);
+
+CREATE POLICY "Users can insert referrals they received or made" ON referrals
+    FOR INSERT WITH CHECK (auth.uid() = referred_user_id OR auth.uid() = referrer_user_id);
+
+
+-- Ensure columns exist in case table is already initialized
+ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
+ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS pro_expires_at TIMESTAMPTZ;
+
 
 
