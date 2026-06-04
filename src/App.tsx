@@ -1404,14 +1404,75 @@ export default function App() {
 
   // Simulate sharing to WhatsApp
   const handleWhatsAppShare = (inv: Invoice) => {
-    const text = `*Invoice from ${shopName}*\nInvoice No: ${inv.invoiceNo}\nCustomer: ${inv.customerName}\nAmount: ₹${inv.totalAmount.toLocaleString('en-IN')}\nStatus: ${inv.status === 'Paid' ? '🟢 PAID' : '🔴 PENDING'}\n\nThank you for shopping with us! Build your trust on InvoicePe.`;
-    const encoded = encodeURIComponent(text);
-    const url = `https://api.whatsapp.com/send?phone=91${inv.customerPhone}&text=${encoded}`;
-    
-    // We cannot open random window popups directly due to sandbox rules reliably, 
-    // so we provide a beautiful simulated share overlay first and let the user click
-    showToast(`Sharing invoice link with ${inv.customerName} via WhatsApp!`, 'success');
-    window.open(url, '_blank', 'noopener,noreferrer');
+    // Sync current receipt to modal so the QR code canvas gets rendered
+    if (!selectedReceipt || selectedReceipt.id !== inv.id) {
+      setSelectedReceipt(inv);
+    }
+
+    const processShare = () => {
+      const hasUpiSet = upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi';
+      
+      // Attempt to download the QR code canvas if present in DOM
+      const canvas = document.getElementById('invoice-qr-canvas') as HTMLCanvasElement | null;
+      if (hasUpiSet && canvas) {
+        try {
+          const qrImage = canvas.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.download = `InvoicePe-QR-${inv.invoiceNo}.png`;
+          link.href = qrImage;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          showToast(`UPI QR code image is downloaded! Kindly attach it to WhatsApp.`, 'success');
+        } catch (err) {
+          console.error('Error exporting QR canvas:', err);
+        }
+      }
+
+      // Calculate total amounts accurately
+      const qrSubtotal = (inv.items || []).reduce((sum, item) => sum + (item.quantity * item.price), 0);
+      const qrGstRate = inv.gstRate !== undefined ? inv.gstRate : 18;
+      const qrGstAmount = inv.gstAmount !== undefined ? inv.gstAmount : qrSubtotal * (qrGstRate / 100);
+      const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
+      
+      let upiLinkSection = '';
+      if (hasUpiSet) {
+        const upiDeepLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${qrGrandTotal}&cu=INR&tn=${encodeURIComponent(`Invoice-${inv.invoiceNo}`)}`;
+        upiLinkSection = `\n\n💳 *UPI Payment Link (Tap to pay instantly):*\n${upiDeepLink}\n\n*Or pay directly to UPI ID:* ${upiId}\n\n📢 _Note: Humne QR code image automatically download kar di hai. Aap use is message ke saath attach karke bhej sakte hain!_`;
+      }
+
+      const itemsListText = (inv.items || [])
+        .map(it => ` - ${it.name} (${it.quantity} x ₹${it.price})`)
+        .join('\n');
+
+      const text = `*Invoice from ${shopName}* 📈\n` +
+        `----------------------------------------\n` +
+        `*Invoice No:* ${inv.invoiceNo}\n` +
+        `*Customer:* ${inv.customerName}\n` +
+        `----------------------------------------\n` +
+        `*Items:*\n${itemsListText}\n` +
+        `----------------------------------------\n` +
+        `*Total Amount:* ₹${inv.totalAmount.toLocaleString('en-IN')}\n` +
+        `*Status:* ${inv.status === 'Paid' ? '🟢 PAID' : '🔴 PENDING'}` +
+        `${upiLinkSection}\n\nThank you for choosing ${shopName}! Powered by InvoicePe. 🙏`;
+
+      const encoded = encodeURIComponent(text);
+      const phoneSuffix = inv.customerPhone && inv.customerPhone !== 'No Mobile' ? inv.customerPhone : '';
+      const url = `https://api.whatsapp.com/send?phone=91${phoneSuffix}&text=${encoded}`;
+      
+      showToast(`Sharing invoice with ${inv.customerName} via WhatsApp!`, 'success');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+
+    // If canvas is not yet in the DOM, let react render it first
+    const canvasExists = !!document.getElementById('invoice-qr-canvas');
+    if (!canvasExists && upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi') {
+      setTimeout(() => {
+        processShare();
+      }, 250);
+    } else {
+      processShare();
+    }
   };
 
   // Send payment reminder to customer via WhatsApp
