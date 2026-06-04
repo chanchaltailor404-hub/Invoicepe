@@ -109,6 +109,9 @@ export default function App() {
   // Filter and search state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending'>('All');
+  const [datePeriod, setDatePeriod] = useState<'All' | 'Today' | 'Yesterday' | 'Last7Days' | 'ThisMonth' | 'Custom'>('All');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   // Customer Screen State
   const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'udhaar'>('dashboard');
@@ -217,15 +220,56 @@ export default function App() {
 
   // Filtered invoices
   const filteredInvoices = useMemo(() => {
+    const getLocalYMD = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const todayStr = getLocalYMD(new Date());
+
     return invoices.filter(inv => {
       const matchesSearch = inv.customerName.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             inv.invoiceNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             inv.customerPhone.includes(searchQuery);
       
       const matchesStatus = statusFilter === 'All' || inv.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      
+      let matchesDate = true;
+      if (datePeriod !== 'All') {
+        const invDate = inv.date; // e.g. "2026-06-03"
+        if (datePeriod === 'Today') {
+          matchesDate = invDate === todayStr;
+        } else if (datePeriod === 'Yesterday') {
+          const d = new Date();
+          d.setDate(d.getDate() - 1);
+          matchesDate = invDate === getLocalYMD(d);
+        } else if (datePeriod === 'Last7Days') {
+          const d = new Date();
+          d.setDate(d.getDate() - 6);
+          const limitStr = getLocalYMD(d);
+          matchesDate = invDate >= limitStr && invDate <= todayStr;
+        } else if (datePeriod === 'ThisMonth') {
+          const d = new Date();
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const limitStr = `${year}-${month}-01`;
+          matchesDate = invDate >= limitStr && invDate <= todayStr;
+        } else if (datePeriod === 'Custom') {
+          if (startDate && endDate) {
+            matchesDate = invDate >= startDate && invDate <= endDate;
+          } else if (startDate) {
+            matchesDate = invDate >= startDate;
+          } else if (endDate) {
+            matchesDate = invDate <= endDate;
+          }
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [invoices, searchQuery, statusFilter]);
+  }, [invoices, searchQuery, statusFilter, datePeriod, startDate, endDate]);
 
   // Custom toast notification trigger
   const showToast = (message: string, type: 'success' | 'info' = 'success') => {
@@ -2750,24 +2794,77 @@ CREATE TABLE invoice_items (
 
             {/* SEARCH & FILTERS CONTROLS */}
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search Grahak name or invoice #..."
-                  className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
-                />
-                {searchQuery && (
-                  <button 
-                    onClick={() => setSearchQuery('')}
-                    className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors"
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search Grahak name or invoice #..."
+                    className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Date range filter dropdown */}
+                <div className="relative shrink-0 md:w-48">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <select
+                    value={datePeriod}
+                    onChange={(e) => {
+                      const val = e.target.value as any;
+                      setDatePeriod(val);
+                      if (val !== 'Custom') {
+                        setStartDate('');
+                        setEndDate('');
+                      }
+                    }}
+                    className="w-full text-xs pl-8 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all font-semibold text-slate-700 appearance-none cursor-pointer"
                   >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                    <option value="All">All Time (हमेशा)</option>
+                    <option value="Today">Today (आज)</option>
+                    <option value="Yesterday">Yesterday (कल)</option>
+                    <option value="Last7Days">Last 7 Days (7 दिन)</option>
+                    <option value="ThisMonth">This Month (महीना)</option>
+                    <option value="Custom">Custom Range 📅</option>
+                  </select>
+                  <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center text-slate-400">
+                    <Filter className="w-3 h-3" />
+                  </div>
+                </div>
               </div>
+
+              {/* Custom Date Inputs */}
+              {datePeriod === 'Custom' && (
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-50">
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wide mb-1">From Date</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full text-xs px-3 py-2 bg-[#FFFBF7] rounded-xl border border-slate-150 focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold text-slate-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wide mb-1">To Date</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full text-xs px-3 py-2 bg-[#FFFBF7] rounded-xl border border-slate-150 focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold text-slate-700"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Tab states */}
               <div className="flex bg-[#FFFBF7] border border-slate-100/70 p-1.5 rounded-xl text-[11px] font-extrabold text-slate-500">
