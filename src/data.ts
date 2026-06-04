@@ -19,6 +19,17 @@ export interface Invoice {
   gstType?: 'inclusive' | 'exclusive';
 }
 
+export interface UdhaarEntry {
+  id: string;
+  user_id?: string;
+  customer_name: string;
+  phone: string;
+  amount: number;
+  description: string;
+  status: 'Paid' | 'Unpaid';
+  created_at: string;
+}
+
 export const INITIAL_INVOICES: Invoice[] = [
   {
     id: 'inv-1',

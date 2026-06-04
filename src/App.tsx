@@ -24,10 +24,11 @@ import {
   ArrowLeft,
   ChevronRight,
   MessageSquare,
-  LogOut
+  LogOut,
+  Notebook
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { INITIAL_INVOICES, Invoice, InvoiceItem, SUGGESTED_ITEMS } from './data';
+import { INITIAL_INVOICES, Invoice, InvoiceItem, SUGGESTED_ITEMS, UdhaarEntry } from './data';
 
 export default function App() {
   // Supabase Auth States
@@ -55,7 +56,7 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending'>('All');
 
   // Customer Screen State
-  const [activeView, setActiveView] = useState<'dashboard' | 'customers'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'udhaar'>('dashboard');
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerFilter, setCustomerFilter] = useState<'all' | 'pending' | 'paid'>('all');
   const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState<{
@@ -177,6 +178,186 @@ export default function App() {
     setTimeout(() => {
       setNotification(null);
     }, 4000);
+  };
+
+  // Udhaar Book States
+  const [udhaars, setUdhaars] = useState<UdhaarEntry[]>([]);
+  const [isUdhaarFormOpen, setIsUdhaarFormOpen] = useState(false);
+  const [udhaarCustomerName, setUdhaarCustomerName] = useState('');
+  const [udhaarPhone, setUdhaarPhone] = useState('');
+  const [udhaarAmount, setUdhaarAmount] = useState<number | ''>('');
+  const [udhaarDesc, setUdhaarDesc] = useState('');
+  const [udhaarDate, setUdhaarDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Load Udhaar from Supabase with LocalStorage fallback
+  const fetchUdhaarsFromSupabase = async (showLoading = false, currentUser = user) => {
+    if (!currentUser) return;
+    try {
+      const { data, error } = await supabase
+        .from('udhaar')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Unable to fetch udhaars from Supabase (maybe table or RLS rules do not exist yet):', error);
+        const localUdhaarStr = localStorage.getItem('invoicepe_udhaars');
+        if (localUdhaarStr) {
+          setUdhaars(JSON.parse(localUdhaarStr));
+        } else {
+          const mockData: UdhaarEntry[] = [
+            {
+              id: 'udhaar-demo-1',
+              customer_name: 'Rajinder Prasad',
+              phone: '9876543210',
+              amount: 1500,
+              description: 'atta 10kg, mustard oil 2L',
+              status: 'Unpaid',
+              created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+            },
+            {
+              id: 'udhaar-demo-2',
+              customer_name: 'Babita Sharma',
+              phone: '9123456789',
+              amount: 450,
+              description: 'maggie box, bread & butter',
+              status: 'Unpaid',
+              created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+            },
+            {
+              id: 'udhaar-demo-3',
+              customer_name: 'Vikram Singh',
+              phone: '9812345670',
+              amount: 720,
+              description: 'shampoo, soap, washing powder',
+              status: 'Paid',
+              created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+            }
+          ];
+          setUdhaars(mockData);
+          localStorage.setItem('invoicepe_udhaars', JSON.stringify(mockData));
+        }
+        return;
+      }
+
+      if (data) {
+        setUdhaars(data.map((row: any) => ({
+          id: row.id,
+          user_id: row.user_id,
+          customer_name: row.customer_name,
+          phone: row.phone,
+          amount: Number(row.amount),
+          description: row.description || '',
+          status: row.status as 'Paid' | 'Unpaid',
+          created_at: row.created_at
+        })));
+        localStorage.setItem('invoicepe_udhaars', JSON.stringify(data));
+      }
+    } catch (err) {
+      console.error('Exception fetching udhaars:', err);
+      const localUdhaarStr = localStorage.getItem('invoicepe_udhaars');
+      if (localUdhaarStr) {
+        setUdhaars(JSON.parse(localUdhaarStr));
+      }
+    }
+  };
+
+  // Add Udhaar entry helper
+  const handleAddUdhaar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!udhaarCustomerName.trim() || !udhaarAmount || Number(udhaarAmount) <= 0) {
+      showToast('Kripya Grahak ka Naam aur Sahi Rakam bharein!', 'info');
+      return;
+    }
+
+    const newEntry: UdhaarEntry = {
+      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
+      user_id: user?.id,
+      customer_name: udhaarCustomerName.trim(),
+      phone: udhaarPhone.trim() || 'No Mobile',
+      amount: Number(udhaarAmount),
+      description: udhaarDesc.trim(),
+      status: 'Unpaid',
+      created_at: new Date(udhaarDate).toISOString()
+    };
+
+    const updatedUdhaars = [newEntry, ...udhaars];
+    setUdhaars(updatedUdhaars);
+    localStorage.setItem('invoicepe_udhaars', JSON.stringify(updatedUdhaars));
+
+    // Reset Form
+    setUdhaarCustomerName('');
+    setUdhaarPhone('');
+    setUdhaarAmount('');
+    setUdhaarDesc('');
+    setUdhaarDate(new Date().toISOString().split('T')[0]);
+    setIsUdhaarFormOpen(false);
+
+    showToast('उधार बही एंट्री जोड़ी गई!', 'success');
+
+    if (user) {
+      try {
+        const { error } = await supabase.from('udhaar').insert({
+          id: newEntry.id,
+          user_id: user.id,
+          customer_name: newEntry.customer_name,
+          phone: newEntry.phone,
+          amount: newEntry.amount,
+          description: newEntry.description,
+          status: newEntry.status,
+          created_at: newEntry.created_at
+        });
+        if (error) {
+          console.warn('Supabase udhaar insert error:', error);
+        } else {
+          fetchUdhaarsFromSupabase(false, user);
+        }
+      } catch (err) {
+        console.error('Supabase exception inserting udhaar:', err);
+      }
+    }
+  };
+
+  // Settle / Mark Udhaar as Paid
+  const handleMarkUdhaarAsPaid = async (id: string, customerName: string, amount: number) => {
+    const updatedUdhaars = udhaars.map(item => {
+      if (item.id === id) {
+        return { ...item, status: 'Paid' as const };
+      }
+      return item;
+    });
+
+    setUdhaars(updatedUdhaars);
+    localStorage.setItem('invoicepe_udhaars', JSON.stringify(updatedUdhaars));
+    showToast(`${customerName}ji ka ₹${amount} ka udhaar paid mark kiya gaya!`, 'success');
+
+    if (user) {
+      try {
+        const { error } = await supabase
+          .from('udhaar')
+          .update({ status: 'Paid' })
+          .eq('id', id);
+
+        if (error) {
+          console.warn('Supabase udhaar update error:', error);
+        } else {
+          fetchUdhaarsFromSupabase(false, user);
+        }
+      } catch (err) {
+        console.error('Supabase exception updating status:', err);
+      }
+    }
+  };
+
+  // Send WhatsApp reminder for Udhaar Entry
+  const handleSendUdhaarReminder = (entry: UdhaarEntry) => {
+    const text = `Namaste ${entry.customer_name}ji! Aapka ₹${entry.amount.toLocaleString('en-IN')} ka udhaar baaki hai. Kripya jaldi ada karein. 🙏 - InvoicePe`;
+    const encoded = encodeURIComponent(text);
+    const phoneSuffix = entry.phone && entry.phone !== 'No Mobile' ? entry.phone : '';
+    const url = `https://api.whatsapp.com/send?phone=91${phoneSuffix}&text=${encoded}`;
+    
+    showToast(`Sending WhatsApp reminder to ${entry.customer_name}ji...`, 'success');
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   // Handle adding an item in the Create Form
@@ -516,6 +697,7 @@ export default function App() {
         }
         startupDatabaseTest(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
+        fetchUdhaarsFromSupabase(true, sessionUser);
       } else {
         setAuthLoading(false);
         setIsLoading(false);
@@ -537,8 +719,10 @@ export default function App() {
           setCustomShopInput(metaShop);
         }
         fetchInvoicesFromSupabase(true, sessionUser);
+        fetchUdhaarsFromSupabase(true, sessionUser);
       } else {
         setInvoices([]);
+        setUdhaars([]);
         setIsLoading(false);
       }
       setAuthLoading(false);
@@ -1401,6 +1585,18 @@ export default function App() {
             <Users className="w-3.5 h-3.5" />
             <span>Customers ({customers.length})</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('udhaar')}
+            className={`flex-1 py-2 text-center rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeView === 'udhaar'
+                ? 'bg-orange-500 text-white shadow-md shadow-orange-100'
+                : 'text-slate-500 hover:text-slate-900 bg-transparent hover:bg-slate-50'
+            }`}
+          >
+            <Notebook className="w-3.5 h-3.5" />
+            <span>Udhaar Bahi</span>
+          </button>
         </div>
 
         {/* TOAST NOTIFICATION CONTAINER */}
@@ -1490,7 +1686,7 @@ CREATE TABLE invoice_items (
           </div>
         )}
 
-        {activeView === 'dashboard' ? (
+        {activeView === 'dashboard' && (
           <>
             {/* Welcome Message */}
             <section className="px-1 pt-1 flex-none">
@@ -1555,22 +1751,30 @@ CREATE TABLE invoice_items (
             </div>
 
             {/* QUICK ACTIONS ROW */}
-            <div className="grid grid-cols-2 gap-3" id="quick-actions-row">
+            <div className="grid grid-cols-3 gap-2" id="quick-actions-row">
               <button
                 type="button"
                 onClick={() => setIsFormOpen(true)}
-                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-3.5 rounded-xl border border-orange-100 shadow-sm flex items-center gap-2 justify-center font-bold text-xs transition-all cursor-pointer"
+                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2.5 rounded-xl border border-orange-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[11px] transition-all cursor-pointer"
               >
                 <Plus className="w-4 h-4 stroke-[2.5]" />
-                New Invoice
+                <span>New Invoice</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveView('customers')}
-                className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-3.5 rounded-xl border border-slate-100 shadow-sm flex items-center gap-2 justify-center font-bold text-xs transition-all cursor-pointer"
+                className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2.5 rounded-xl border border-slate-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[11px] transition-all cursor-pointer"
               >
                 <Users className="w-4 h-4 stroke-[2.5]" />
-                Manage Customers
+                <span>Customers</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('udhaar')}
+                className="bg-red-50 hover:bg-red-100 text-red-650 p-2.5 rounded-xl border border-red-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[11px] transition-all cursor-pointer"
+              >
+                <Notebook className="w-4 h-4 text-red-500 stroke-[2.5]" />
+                <span className="text-red-600">Udhaar Book</span>
               </button>
             </div>
 
@@ -1717,8 +1921,9 @@ CREATE TABLE invoice_items (
               </div>
             </section>
           </>
-        ) : (
-          /* CUSTOMERS SCREEN */
+        )}
+
+        {activeView === 'customers' && (
           <>
             {/* Customer Header */}
             <section className="px-1 pt-1 flex-none flex justify-between items-center">
@@ -1850,7 +2055,205 @@ CREATE TABLE invoice_items (
           </>
         )}
 
-        </main>
+        {activeView === 'udhaar' && (
+          <div className="space-y-5">
+            {/* Udhaar Welcome Details and Metrics */}
+            <section className="px-1 pt-1 flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none text-orange-650">उधार बही (Udhaar Book)</h2>
+                <p className="text-slate-500 text-xs mt-1.5 font-medium leading-none">Hisab-Kitab easily managed digitally on InvoicePe.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUdhaarFormOpen(true)}
+                className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs uppercase tracking-wider px-3.5 py-2.5 rounded-xl shadow-md cursor-pointer flex items-center gap-1 active:scale-95 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                <span>नया उधार (New Udhaar)</span>
+              </button>
+            </section>
+
+            {/* Total Udhaar Amount Card in big red text */}
+            {(() => {
+              const pendingUdhaarTotal = udhaars
+                .filter(item => item.status === 'Unpaid')
+                .reduce((total, item) => total + item.amount, 0);
+
+              return (
+                <div className="bg-red-50 border border-red-100 p-5 rounded-2xl shadow-sm flex flex-col gap-1.5 relative overflow-hidden">
+                  <div className="absolute right-4 top-4 text-red-100">
+                    <Notebook className="w-16 h-16 stroke-[1.5]" />
+                  </div>
+                  <span className="text-[11px] font-bold text-red-600 uppercase tracking-widest block font-sans">कुल बाकी रकम (Total Udhaar Baaki)</span>
+                  <p className="text-3xl font-black text-red-600 font-mono leading-none">
+                    ₹{pendingUdhaarTotal.toLocaleString('en-IN')}
+                  </p>
+                  <div className="mt-2.5 flex justify-between items-center text-[10px] text-red-750 font-semibold font-mono">
+                    <span>{udhaars.filter(item => item.status === 'Unpaid').length} Owed Accounts</span>
+                    <span>•</span>
+                    <span>उधार बही बहीखाता (Ledger)</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* List of People Who Owe Money */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center px-1">
+                <h2 className="text-xs font-bold text-slate-705 tracking-wider uppercase flex items-center gap-1.5 leading-none">
+                  <span>Active Udhaar (बाकी सूचि)</span>
+                  <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-mono font-bold">
+                    {udhaars.filter(item => item.status === 'Unpaid').length}
+                  </span>
+                </h2>
+              </div>
+
+              {udhaars.filter(item => item.status === 'Unpaid').length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center p-6 space-y-2">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-550" />
+                  <p className="text-xs text-slate-500 font-semibold font-sans">Sabb paid hai! Koi udhaar baaki nahi hai. 👍</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {udhaars
+                    .filter(item => item.status === 'Unpaid')
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="bg-white p-4.5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between gap-3 hover:border-red-250 transition-all font-sans"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <h3 className="font-extrabold text-sm text-slate-900 leading-tight">
+                              {item.customer_name}
+                            </h3>
+                            <span className="text-[7.5px] bg-red-100 text-red-705 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-widest leading-none">
+                              DUE / बाकि
+                            </span>
+                          </div>
+                          
+                          {item.phone && item.phone !== 'No Mobile' && (
+                            <p className="text-[10px] text-slate-400 font-mono font-bold flex items-center gap-1 leading-none">
+                              <Phone className="w-3 h-3 text-slate-400" />
+                              +91 {item.phone}
+                            </p>
+                          )}
+                          
+                          {item.description && (
+                            <p className="text-xs text-slate-500 italic bg-slate-50 border border-slate-100 p-2 rounded-lg my-1 block">
+                              "{item.description}"
+                            </p>
+                          )}
+                          
+                          <p className="text-[9.5px] text-slate-450 font-semibold font-mono">
+                            Date: {new Date(item.created_at).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3.5 pt-2 border-t border-slate-100">
+                          <div>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block leading-none font-sans">Baaki Rakam</span>
+                            <span className="text-base font-black font-mono text-red-650 block">
+                              ₹{item.amount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {/* WhatsApp Reminder Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleSendUdhaarReminder(item)}
+                              className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 p-2 rounded-xl transition-all active:scale-90 cursor-pointer flex items-center gap-1 text-[10.5px] font-extrabold"
+                              title="Send WhatsApp Reminder"
+                            >
+                              <Share2 className="w-3.5 h-3.5 text-emerald-500" />
+                              <span>Remind</span>
+                            </button>
+
+                            {/* Mark as Paid button */}
+                            <button
+                              type="button"
+                              onClick={() => handleMarkUdhaarAsPaid(item.id, item.customer_name, item.amount)}
+                              className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-[10.5px] px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              <span>Paid किया</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* Paid Udhaar History Section at bottom */}
+            <div className="space-y-3 pt-4">
+              <div className="flex justify-between items-center px-1">
+                <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 font-sans leading-none">
+                  <span>Paid History (चुकाए गए खातों का इतिहास)</span>
+                  <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full font-mono font-bold">
+                    {udhaars.filter(item => item.status === 'Paid').length}
+                  </span>
+                </h2>
+              </div>
+
+              {udhaars.filter(item => item.status === 'Paid').length === 0 ? (
+                <div className="text-center py-8 bg-slate-50 border border-slate-100 rounded-2xl text-slate-400 text-xs font-semibold font-sans">
+                  इतिहास खाली है (Paid account history is empty).
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-150 rounded-2xl overflow-hidden bg-white shadow-xs">
+                  {udhaars
+                    .filter(item => item.status === 'Paid')
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 flex justify-between items-center bg-zinc-50/40 relative font-sans"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="font-bold text-slate-700 text-xs truncate">
+                              {item.customer_name}
+                            </h4>
+                            <span className="text-[7.5px] bg-emerald-100 text-emerald-850 px-1.5 py-0.5 rounded font-extrabold tracking-widest leading-none">
+                              PAID / चुकता
+                            </span>
+                          </div>
+                          
+                          {item.description && (
+                            <p className="text-[11px] text-slate-450 truncate max-w-[180px]">
+                              "{item.description}"
+                            </p>
+                          )}
+                          
+                          <p className="text-[9px] text-slate-400 font-mono font-bold leading-none">
+                            Received: {new Date(item.created_at).toLocaleDateString('en-IN')}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Settle Amount</p>
+                          <p className="text-sm font-black text-slate-450 font-mono line-through">
+                            ₹{item.amount.toLocaleString('en-IN')}
+                          </p>
+                          <span className="text-[8px] text-emerald-600 font-bold block bg-emerald-50 border border-emerald-100 rounded px-1 mt-0.5">
+                            Settle Completed
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+      </main>
 
         {/* BOTTOM ACTION BAR (Big Orange CTA saying "Create New Invoice") */}
         <footer className="p-5 bg-white border-t border-orange-100 sticky bottom-0 left-0 right-0 z-40 flex-none shadow-md">
@@ -1864,6 +2267,142 @@ CREATE TABLE invoice_items (
             <span>CREATE NEW INVOICE</span>
           </button>
         </footer>
+
+        {/* DIALOG FOR NEW UDHAAR ENTRY */}
+        <AnimatePresence>
+          {isUdhaarFormOpen && (
+            <>
+              {/* Backplate backdrop overlay */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsUdhaarFormOpen(false)}
+                className="absolute inset-0 bg-neutral-950 z-50 cursor-pointer"
+              />
+
+              {/* Form container drawer panel slide-up */}
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                className="absolute left-0 right-0 bottom-0 max-h-[85vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
+              >
+                {/* Header of Drawer */}
+                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10 font-sans">
+                  <div>
+                    <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide">नया उधार जोड़ें (New Udhaar Entry)</h3>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Manage digital ledger instantly on InvoicePe</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsUdhaarFormOpen(false)}
+                    className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-600 transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Form main context */}
+                <form onSubmit={handleAddUdhaar} className="p-5 space-y-4 flex-1 pb-10 font-sans">
+                  
+                  {/* Customer details */}
+                  <div className="space-y-3.5 bg-red-50/20 p-4 rounded-xl border border-red-100">
+                    <h4 className="text-[11px] font-bold text-red-750 uppercase tracking-wider flex items-center gap-1.5">
+                      <Notebook className="w-3.5 h-3.5 text-red-500" />
+                      <span>Udhaar Khata bahi (उधार बही विवरण)</span>
+                    </h4>
+
+                    {/* Customer Name input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">ग्राहक का नाम (Grahak Name) *</label>
+                      <input
+                        type="text"
+                        required
+                        value={udhaarCustomerName}
+                        onChange={(e) => setUdhaarCustomerName(e.target.value)}
+                        placeholder="जैसे: Ramesh Kumar"
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
+                      />
+                    </div>
+
+                    {/* Customer Phone input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">ग्राहक का मोबाइल (Grahak Mobile Phone)</label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">+91</span>
+                        <input
+                          type="tel"
+                          maxLength={10}
+                          value={udhaarPhone}
+                          onChange={(e) => setUdhaarPhone(e.target.value.replace(/\D/g, ''))}
+                          placeholder="98765 XXXXX"
+                          className="w-full text-xs pl-11 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-mono font-bold text-slate-850"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Udhaar Amount input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">उधार रकम (Amount in ₹) *</label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">₹</span>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          value={udhaarAmount}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setUdhaarAmount(val === '' ? '' : Number(val));
+                          }}
+                          placeholder="जैसे: 250"
+                          className="w-full text-xs pl-7 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all font-mono font-bold text-red-650"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Item description */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">विवरण / सामान की जानकारी (Item description)</label>
+                      <input
+                        type="text"
+                        value={udhaarDesc}
+                        onChange={(e) => setUdhaarDesc(e.target.value)}
+                        placeholder="जैसे: atta 2kg, cheeni 1kg"
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Date */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">तारीख (Udhaar Date)</label>
+                      <input
+                        type="date"
+                        value={udhaarDate}
+                        onChange={(e) => setUdhaarDate(e.target.value)}
+                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all text-slate-800 font-semibold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full bg-orange-500 hover:bg-orange-600 py-3.5 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md active:scale-[0.98]"
+                    >
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>उधार बही में जोड़ें / SAVE TO BOOK</span>
+                    </button>
+                  </div>
+
+                </form>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
         {/* DIALOG FOR NEW INVOICE */}
         <AnimatePresence>

@@ -114,3 +114,36 @@ CREATE POLICY "Users can delete items in their own invoices" ON invoice_items
             WHERE invoices.id = invoice_items.invoice_id AND invoices.user_id = auth.uid()
         )
     );
+
+-- 4. Udhaar Table (Udhaar Book / Digital Khaata Book)
+CREATE TABLE IF NOT EXISTS udhaar (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    customer_name TEXT NOT NULL,
+    phone TEXT NOT NULL DEFAULT 'No Mobile',
+    amount NUMERIC NOT NULL DEFAULT 0,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'Unpaid', -- 'Unpaid' / 'Paid'
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for searching udhaar entries
+CREATE INDEX IF NOT EXISTS idx_udhaar_customer ON udhaar (customer_name);
+CREATE INDEX IF NOT EXISTS idx_udhaar_user ON udhaar (user_id);
+
+-- Enable RLS (Row Level Security) for Udhaar
+ALTER TABLE udhaar ENABLE ROW LEVEL SECURITY;
+
+-- Udhaar Policies
+CREATE POLICY "Users can select their own udhaar records" ON udhaar 
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own udhaar records" ON udhaar 
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own udhaar records" ON udhaar 
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own udhaar records" ON udhaar 
+    FOR DELETE USING (auth.uid() = user_id);
+
