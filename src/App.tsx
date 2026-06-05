@@ -29,7 +29,9 @@ import {
   QrCode,
   Mic,
   MicOff,
-  Gift
+  Gift,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -83,13 +85,40 @@ export default function App() {
   const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
   const [proUntil, setProUntil] = useState<string | null>(() => localStorage.getItem('invoicepe_pro_until') || null);
 
-  const generateReferralCode = (name: string): string => {
-    const cleanName = (name || 'USER')
+  // Dark mode state control
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('invoicepe_dark_mode') === 'true');
+
+  const toggleDarkMode = () => {
+    const nextVal = !darkMode;
+    setDarkMode(nextVal);
+    localStorage.setItem('invoicepe_dark_mode', String(nextVal));
+  };
+
+  const generateReferralCode = (nameOrUser: any): string => {
+    let base = 'USER';
+    if (typeof nameOrUser === 'string') {
+      base = nameOrUser;
+    } else if (nameOrUser && typeof nameOrUser === 'object') {
+      const uMetadata = nameOrUser.user_metadata || {};
+      const ownerName = uMetadata.owner_name || uMetadata.name;
+      const userEmail = nameOrUser.email || '';
+      
+      if (ownerName && ownerName.trim()) {
+        base = ownerName.trim();
+      } else if (userEmail && userEmail.trim()) {
+        base = userEmail.split('@')[0];
+      } else if (uMetadata.shop_name && uMetadata.shop_name.trim()) {
+        base = uMetadata.shop_name.trim();
+      }
+    }
+
+    const cleanBase = (base || 'USER')
       .toUpperCase()
-      .replace(/[^A-Z]/g, '')
-      .substring(0, 6);
+      .replace(/[^A-Z]/g, '');
+
+    const truncated = cleanBase.substring(0, 10) || 'USER';
     const suffix = Math.floor(Math.random() * 90) + 10;
-    return `${cleanName || 'INVOICE'}${suffix}`;
+    return `${truncated}${suffix}`;
   };
 
   // GST Report configuration
@@ -316,8 +345,8 @@ export default function App() {
       // If no profile exists, create a default unique one!
       if (!data) {
         console.log('No shop profile entry found. Inserting default shop profile entry...');
+        const generatedCode = generateReferralCode(currentUser);
         const nameForCode = currentUser.user_metadata?.owner_name || currentUser.user_metadata?.shop_name || currentUser.email?.split('@')[0] || 'MERCHANT';
-        const generatedCode = generateReferralCode(nameForCode);
         
         const defaultProfile = {
           user_id: currentUser.id,
@@ -345,6 +374,23 @@ export default function App() {
 
       if (data) {
         console.log('Using shop profile data:', data);
+        
+        let loadedReferralCode = data.referral_code;
+        if (!loadedReferralCode || loadedReferralCode === 'RAMESH20' || loadedReferralCode.trim() === '') {
+          const generatedCode = generateReferralCode(currentUser);
+          console.log('Null or default referral code found. Updating in DB to:', generatedCode);
+          
+          const { error: updateCodeErr } = await supabase
+            .from('shop_profiles')
+            .update({ referral_code: generatedCode })
+            .eq('user_id', currentUser.id);
+            
+          if (!updateCodeErr) {
+            loadedReferralCode = generatedCode;
+            data.referral_code = generatedCode;
+          }
+        }
+
         setShopName(data.shop_name);
         setCustomShopInput(data.shop_name);
 
@@ -364,7 +410,7 @@ export default function App() {
         setShopAddress(data.address || '');
         setCustomShopAddressInput(data.address || '');
 
-        setReferralCode(data.referral_code || '');
+        setReferralCode(loadedReferralCode || '');
         setProExpiresAt(data.pro_expires_at || null);
         setProUntil(data.pro_until || null);
 
@@ -548,7 +594,8 @@ export default function App() {
         const { error } = await supabase
           .from('udhaar')
           .update({ status: 'Paid' })
-          .eq('id', id);
+          .eq('id', id)
+          .eq('user_id', user.id);
 
         if (error) {
           console.warn('Supabase udhaar update error:', error);
@@ -645,7 +692,7 @@ export default function App() {
         }
       }
 
-      const generatedCode = generateReferralCode(shopName.trim());
+      const generatedCode = generateReferralCode(newUser);
       // New user gets 1 month free Pro if referred
       const proExpiry = referrerUserId 
         ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() 
@@ -2265,8 +2312,8 @@ Powered by InvoicePe 🧾`;
 
   if (authLoading) {
     return (
-      <div id="app-root" className="min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4">
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-center items-center gap-3">
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-center items-center gap-3 transition-all duration-300">
           <div className="w-12 h-12 rounded-full border-4 border-orange-200 border-t-orange-500 animate-spin"></div>
           <p className="text-[11px] font-extrabold text-orange-950 animate-pulse tracking-widest uppercase text-center">Initializing InvoicePe Ledger...</p>
         </div>
@@ -2276,8 +2323,8 @@ Powered by InvoicePe 🧾`;
 
   if (!user) {
     return (
-      <div id="app-root" className="min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4">
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between">
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
           
           {/* Top Status Accent */}
           <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/50 -mx-6 -mt-6">
@@ -2471,10 +2518,10 @@ Powered by InvoicePe 🧾`;
 
   // Logged-in view starting
   return (
-    <div id="app-root" className="min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4">
+    <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
       
       {/* Container simulating high quality mobile dashboard centered on desktop, seamless on actual mobile */}
-      <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden">
+      <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden transition-all duration-300">
         
         {/* Loading Spinner Overlay */}
         {isLoading && (
@@ -2534,6 +2581,16 @@ Powered by InvoicePe 🧾`;
                   </div>
                 </div>
               </div>
+
+              {/* Header Dark Mode Toggle Button */}
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                className="w-8 h-8 rounded-full bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
+              >
+                {darkMode ? <Sun className="w-3.5 h-3.5 stroke-[2.5]" /> : <Moon className="w-3.5 h-3.5 stroke-[2.5]" />}
+              </button>
 
               {/* Header GST Report Button */}
               <button
@@ -2686,7 +2743,13 @@ CREATE TABLE invoice_items (
         )}
 
         {activeView === 'dashboard' && (
-          <>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-5"
+          >
             {/* Welcome Message */}
             <section className="px-1 pt-1 flex-none flex flex-col gap-2">
               <div className="flex items-center gap-2 justify-between md:justify-start">
@@ -3029,11 +3092,17 @@ CREATE TABLE invoice_items (
                 )}
               </div>
             </section>
-          </>
+          </motion.div>
         )}
 
         {activeView === 'customers' && (
-          <>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-5"
+          >
             {/* Customer Header */}
             <section className="px-1 pt-1 flex-none flex justify-between items-center">
               <div>
@@ -3161,11 +3230,17 @@ CREATE TABLE invoice_items (
                 ))
               )}
             </div>
-          </>
+          </motion.div>
         )}
 
         {activeView === 'udhaar' && (
-          <div className="space-y-5">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-5"
+          >
             {/* Udhaar Welcome Details and Metrics */}
             <section className="px-1 pt-1 flex justify-between items-center">
               <div>
@@ -3359,7 +3434,7 @@ CREATE TABLE invoice_items (
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
         )}
 
       </main>

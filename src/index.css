@@ -5,3 +5,156 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
 }
+
+/* =========================================================================
+   🌙 CUSTOM HIGH-FIDELITY DARK MODE OVERRIDES
+   ========================================================================= */
+
+.dark #mobile-viewport {
+  background-color: #0b0f19 !important; /* Premium rich deep slate */
+  border-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
+.dark #main-header,
+.dark #navigation-tabs {
+  background-color: #030712 !important; /* Pure black/indigo accent */
+  border-color: #1e293b !important;
+}
+
+.dark footer {
+  background-color: #030712 !important;
+  border-color: #1e293b !important;
+}
+
+.dark #main-header h1,
+.dark #main-header h2,
+.dark #main-header p,
+.dark #main-header span,
+.dark #navigation-tabs span,
+.dark #navigation-tabs button {
+  color: #f1f5f9;
+}
+
+/* Tab button specific rules in dark mode */
+.dark #navigation-tabs button:not(.bg-orange-500) {
+  color: #94a3b8 !important;
+  background-color: transparent !important;
+}
+.dark #navigation-tabs button:not(.bg-orange-500):hover {
+  color: #e2e8f0 !important;
+  background-color: #1e293b !important;
+}
+
+/* Automatically style standard cards and sections with white bg in light mode */
+.dark .bg-white,
+.dark .bg-\[\#FFFBF7\],
+.dark .bg-\[\#FFFBF7\]\/80,
+.dark .bg-\[\#FFFBF7\]\/40,
+.dark .bg-slate-50,
+.dark .bg-zinc-50\/40,
+.dark .bg-slate-50\/40,
+.dark .bg-orange-50\/50,
+.dark .bg-orange-50,
+.dark .bg-[#FFFBF7],
+.dark div.bg-white,
+.dark section.bg-white,
+.dark li.bg-white {
+  background-color: #111827 !important; /* Premium dark card background */
+  border-color: #1f2937 !important; /* Gray-800 border */
+  color: #f3f4f6 !important;
+}
+
+/* Dynamic Text Overrides for contrast */
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-755,
+.dark .text-slate-700,
+.dark .text-neutral-900,
+.dark .text-neutral-800 {
+  color: #f9fafb !important; /* Warm pure white/slate */
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-450,
+.dark .text-slate-400,
+.dark .text-neutral-500,
+.dark .text-neutral-400,
+.dark p.text-slate-500,
+.dark p.text-slate-400 {
+  color: #9ca3af !important; /* Soft gray for secondary label contrast */
+}
+
+/* Custom cards */
+.dark .border-slate-100,
+.dark .border-slate-150,
+.dark .border-slate-200,
+.dark .border-orange-100,
+.dark .border-orange-100\/55,
+.dark .border-orange-100\/50,
+.dark .border-orange-50 {
+  border-color: #374151 !important; /* Solid high-contrast dark border */
+}
+
+/* Modals, drawers and dialog boxes styling */
+.dark .motion-div, 
+.dark div[role="dialog"],
+.dark .bg-white.rounded-t-3xl {
+  background-color: #0b0f19 !important;
+  border-color: #1f2937 !important;
+  color: #f1f5f9 !important;
+}
+
+.dark .divide-slate-100 > * + * {
+  border-color: #1f2937 !important;
+}
+
+.dark .divide-y > * {
+  border-color: #1f2937 !important;
+}
+
+/* Inputs, textareas, selectors */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #030712 !important;
+  border-color: #374151 !important;
+  color: #ffffff !important;
+}
+
+.dark input::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Grahaks and ledger entries */
+.dark .bg-zinc-50\/40 {
+  background-color: #111827 !important;
+}
+
+/* Prevent dark mode from overriding status pill backgrounds */
+.dark .bg-emerald-100,
+.dark .bg-emerald-50,
+.dark .bg-emerald-100 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.dark .bg-red-50,
+.dark .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  color: #f87171 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.dark .bg-orange-100 {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  color: #fb923c !important;
+}
+
+/* Toast container positioning, maintain visibility */
+.dark .shadow-xl {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6) !important;
+}
+
