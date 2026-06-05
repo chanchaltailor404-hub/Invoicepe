@@ -319,6 +319,8 @@ export default function App() {
 
   // Udhaar Book States
   const [udhaars, setUdhaars] = useState<UdhaarEntry[]>([]);
+  const [udhaarLoading, setUdhaarLoading] = useState(false);
+  const [udhaarError, setUdhaarError] = useState<string | null>(null);
   const [isUdhaarFormOpen, setIsUdhaarFormOpen] = useState(false);
   const [udhaarCustomerName, setUdhaarCustomerName] = useState('');
   const [udhaarPhone, setUdhaarPhone] = useState('');
@@ -447,9 +449,11 @@ export default function App() {
     }
   };
 
-  // Load Udhaar from Supabase with LocalStorage fallback
-  const fetchUdhaarsFromSupabase = async (showLoading = false, currentUser = user) => {
+  // Load Udhaar from Supabase
+  const fetchUdhaar = async (showLoading = false, currentUser = user) => {
     if (!currentUser) return;
+    setUdhaarLoading(showLoading);
+    setUdhaarError(null);
     try {
       const { data, error } = await supabase
         .from('udhaar')
@@ -458,44 +462,7 @@ export default function App() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.warn('Unable to fetch udhaars from Supabase (maybe table or RLS rules do not exist yet):', error);
-        const localUdhaarStr = localStorage.getItem('invoicepe_udhaars');
-        if (localUdhaarStr) {
-          setUdhaars(JSON.parse(localUdhaarStr));
-        } else {
-          const mockData: UdhaarEntry[] = [
-            {
-              id: 'udhaar-demo-1',
-              customer_name: 'Rajinder Prasad',
-              phone: '9876543210',
-              amount: 1500,
-              description: 'atta 10kg, mustard oil 2L',
-              status: 'Unpaid',
-              created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
-            },
-            {
-              id: 'udhaar-demo-2',
-              customer_name: 'Babita Sharma',
-              phone: '9123456789',
-              amount: 450,
-              description: 'maggie box, bread & butter',
-              status: 'Unpaid',
-              created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
-            },
-            {
-              id: 'udhaar-demo-3',
-              customer_name: 'Vikram Singh',
-              phone: '9812345670',
-              amount: 720,
-              description: 'shampoo, soap, washing powder',
-              status: 'Paid',
-              created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
-            }
-          ];
-          setUdhaars(mockData);
-          localStorage.setItem('invoicepe_udhaars', JSON.stringify(mockData));
-        }
-        return;
+        throw error;
       }
 
       if (data) {
@@ -509,102 +476,93 @@ export default function App() {
           status: row.status as 'Paid' | 'Unpaid',
           created_at: row.created_at
         })));
-        localStorage.setItem('invoicepe_udhaars', JSON.stringify(data));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Exception fetching udhaars:', err);
-      const localUdhaarStr = localStorage.getItem('invoicepe_udhaars');
-      if (localUdhaarStr) {
-        setUdhaars(JSON.parse(localUdhaarStr));
-      }
+      setUdhaarError(err.message || 'उधार डेटा लोड करने में त्रुटि आई!');
+    } finally {
+      setUdhaarLoading(false);
     }
+  };
+
+  // Backwards compatible wrapper alias
+  const fetchUdhaarsFromSupabase = async (showLoading = false, currentUser = user) => {
+    return fetchUdhaar(showLoading, currentUser);
   };
 
   // Add Udhaar entry helper
   const handleAddUdhaar = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      showToast('Kripya Login karein!', 'info');
+      return;
+    }
     if (!udhaarCustomerName.trim() || !udhaarAmount || Number(udhaarAmount) <= 0) {
       showToast('Kripya Grahak ka Naam aur Sahi Rakam bharein!', 'info');
       return;
     }
 
-    const newEntry: UdhaarEntry = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
-      user_id: user?.id,
-      customer_name: udhaarCustomerName.trim(),
-      phone: udhaarPhone.trim() || 'No Mobile',
-      amount: Number(udhaarAmount),
-      description: udhaarDesc.trim(),
-      status: 'Unpaid',
-      created_at: new Date(udhaarDate).toISOString()
-    };
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.from('udhaar').insert({
+        user_id: user.id,
+        customer_name: udhaarCustomerName.trim(),
+        phone: udhaarPhone.trim() || 'No Mobile',
+        amount: Number(udhaarAmount),
+        description: udhaarDesc.trim(), // Acts as our note / description field
+        status: 'Unpaid',
+        created_at: new Date(udhaarDate).toISOString()
+      });
 
-    const updatedUdhaars = [newEntry, ...udhaars];
-    setUdhaars(updatedUdhaars);
-    localStorage.setItem('invoicepe_udhaars', JSON.stringify(updatedUdhaars));
-
-    // Reset Form
-    setUdhaarCustomerName('');
-    setUdhaarPhone('');
-    setUdhaarAmount('');
-    setUdhaarDesc('');
-    setUdhaarDate(new Date().toISOString().split('T')[0]);
-    setIsUdhaarFormOpen(false);
-
-    showToast('उधार बही एंट्री जोड़ी गई!', 'success');
-
-    if (user) {
-      try {
-        const { error } = await supabase.from('udhaar').insert({
-          id: newEntry.id,
-          user_id: user.id,
-          customer_name: newEntry.customer_name,
-          phone: newEntry.phone,
-          amount: newEntry.amount,
-          description: newEntry.description,
-          status: newEntry.status,
-          created_at: newEntry.created_at
-        });
-        if (error) {
-          console.warn('Supabase udhaar insert error:', error);
-        } else {
-          fetchUdhaarsFromSupabase(false, user);
-        }
-      } catch (err) {
-        console.error('Supabase exception inserting udhaar:', err);
+      if (error) {
+        throw error;
       }
+
+      showToast('उधार बही एंट्री जोड़ी गई!', 'success');
+
+      // Reset Form fields
+      setUdhaarCustomerName('');
+      setUdhaarPhone('');
+      setUdhaarAmount('');
+      setUdhaarDesc('');
+      setUdhaarDate(new Date().toISOString().split('T')[0]);
+      setIsUdhaarFormOpen(false);
+
+      // Refresh data
+      await fetchUdhaar(false, user);
+    } catch (err: any) {
+      console.error('Supabase exception inserting udhaar:', err);
+      showToast('उधार जोड़ने में समस्या आई: ' + (err.message || ''), 'info');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   // Settle / Mark Udhaar as Paid
   const handleMarkUdhaarAsPaid = async (id: string, customerName: string, amount: number) => {
-    const updatedUdhaars = udhaars.map(item => {
-      if (item.id === id) {
-        return { ...item, status: 'Paid' as const };
+    if (!user) {
+      showToast('Kripya Login karein!', 'info');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('udhaar')
+        .update({ status: 'Paid' })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        throw error;
       }
-      return item;
-    });
 
-    setUdhaars(updatedUdhaars);
-    localStorage.setItem('invoicepe_udhaars', JSON.stringify(updatedUdhaars));
-    showToast(`${customerName}ji ka ₹${amount} ka udhaar paid mark kiya gaya!`, 'success');
-
-    if (user) {
-      try {
-        const { error } = await supabase
-          .from('udhaar')
-          .update({ status: 'Paid' })
-          .eq('id', id)
-          .eq('user_id', user.id);
-
-        if (error) {
-          console.warn('Supabase udhaar update error:', error);
-        } else {
-          fetchUdhaarsFromSupabase(false, user);
-        }
-      } catch (err) {
-        console.error('Supabase exception updating status:', err);
-      }
+      showToast(`${customerName}ji ka ₹${amount} ka udhaar paid mark kiya gaya!`, 'success');
+      await fetchUdhaar(false, user);
+    } catch (err: any) {
+      console.error('Supabase exception updating status:', err);
+      showToast('उधार सेटल करने में त्रुटि आई: ' + (err.message || ''), 'info');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1143,7 +1101,7 @@ export default function App() {
         startupDatabaseTest(sessionUser);
         fetchShopProfileFromSupabase(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
-        fetchUdhaarsFromSupabase(true, sessionUser);
+        fetchUdhaar(true, sessionUser);
       } else {
         setAuthLoading(false);
         setIsLoading(false);
@@ -1176,7 +1134,7 @@ export default function App() {
         }
         fetchShopProfileFromSupabase(sessionUser);
         fetchInvoicesFromSupabase(true, sessionUser);
-        fetchUdhaarsFromSupabase(true, sessionUser);
+        fetchUdhaar(true, sessionUser);
       } else {
         setInvoices([]);
         setUdhaars([]);
@@ -3257,7 +3215,29 @@ CREATE TABLE invoice_items (
               </button>
             </section>
 
-            {/* Total Udhaar Amount Card in big red text */}
+            {/* Loader & Error handler */}
+            {udhaarLoading ? (
+              <div className="flex items-center justify-center py-20 bg-white rounded-2xl border border-slate-150 shadow-xs">
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <div className="w-8 h-8 border-3 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-xs text-slate-500 font-semibold font-sans">उधार बही ख़ाता लोड हो रहा है...<br/><span className="text-[10px] font-normal text-slate-400">Loading your secure ledger from Supabase</span></p>
+                </div>
+              </div>
+            ) : udhaarError ? (
+              <div className="p-5 bg-red-50 border border-red-100 rounded-2xl text-xs flex flex-col gap-2 font-sans">
+                <span className="font-extrabold text-red-750 text-sm">त्रुटि (An error occurred loading Udhaar Book)</span>
+                <p className="text-slate-600 font-medium">{udhaarError}</p>
+                <button
+                  type="button"
+                  onClick={() => fetchUdhaar(true)}
+                  className="mt-1 text-xs bg-red-650 text-white px-4 py-2 rounded-xl font-bold self-start cursor-pointer hover:bg-red-700 transition"
+                >
+                  पुनः प्रयास करें (Retry)
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Total Udhaar Amount Card in big red text */}
             {(() => {
               const pendingUdhaarTotal = udhaars
                 .filter(item => item.status === 'Unpaid')
@@ -3434,6 +3414,8 @@ CREATE TABLE invoice_items (
                 </div>
               )}
             </div>
+              </>
+            )}
           </motion.div>
         )}
 
