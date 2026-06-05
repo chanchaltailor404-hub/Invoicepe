@@ -25,7 +25,7 @@ export interface UdhaarEntry {
   customer_name: string;
   phone: string;
   amount: number;
-  description: string;
+  note: string;
   status: 'Paid' | 'Unpaid';
   created_at: string;
 }

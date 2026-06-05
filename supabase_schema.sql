@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS udhaar (
     customer_name TEXT NOT NULL,
     phone TEXT NOT NULL DEFAULT 'No Mobile',
     amount NUMERIC NOT NULL DEFAULT 0,
-    description TEXT,
+    note TEXT,
     status TEXT NOT NULL DEFAULT 'Unpaid', -- 'Unpaid' / 'Paid'
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

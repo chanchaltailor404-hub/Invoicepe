@@ -472,7 +472,7 @@ export default function App() {
           customer_name: row.customer_name,
           phone: row.phone,
           amount: Number(row.amount),
-          description: row.description || '',
+          note: row.note || '',
           status: row.status as 'Paid' | 'Unpaid',
           created_at: row.created_at
         })));
@@ -509,7 +509,7 @@ export default function App() {
         customer_name: udhaarCustomerName.trim(),
         phone: udhaarPhone.trim() || 'No Mobile',
         amount: Number(udhaarAmount),
-        description: udhaarDesc.trim(), // Acts as our note / description field
+        note: udhaarDesc.trim(),
         status: 'Unpaid',
         created_at: new Date(udhaarDate).toISOString()
       });
@@ -3303,9 +3303,9 @@ CREATE TABLE invoice_items (
                             </p>
                           )}
                           
-                          {item.description && (
+                          {item.note && (
                             <p className="text-xs text-slate-500 italic bg-slate-50 border border-slate-100 p-2 rounded-lg my-1 block">
-                              "{item.description}"
+                              "{item.note}"
                             </p>
                           )}
                           
@@ -3389,9 +3389,9 @@ CREATE TABLE invoice_items (
                             </span>
                           </div>
                           
-                          {item.description && (
+                          {item.note && (
                             <p className="text-[11px] text-slate-450 truncate max-w-[180px]">
-                              "{item.description}"
+                              "{item.note}"
                             </p>
                           )}
                           
