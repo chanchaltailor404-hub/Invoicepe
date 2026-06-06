@@ -85,14 +85,8 @@ export default function App() {
   const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
   const [proUntil, setProUntil] = useState<string | null>(() => localStorage.getItem('invoicepe_pro_until') || null);
 
-  // Dark mode state control
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('invoicepe_dark_mode') === 'true');
-
-  const toggleDarkMode = () => {
-    const nextVal = !darkMode;
-    setDarkMode(nextVal);
-    localStorage.setItem('invoicepe_dark_mode', String(nextVal));
-  };
+  // Dark mode state control (Disabled: client requested pure light mode)
+  const darkMode = false;
 
   const generateReferralCode = (nameOrUser: any): string => {
     let base = 'USER';
@@ -213,6 +207,7 @@ export default function App() {
 
   // New Invoice Form state
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showVoiceHelp, setShowVoiceHelp] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [formItems, setFormItems] = useState<InvoiceItem[]>([
@@ -2634,15 +2629,6 @@ Powered by InvoicePe 🧾`;
                 </div>
               </div>
 
-              {/* Header Dark Mode Toggle Button */}
-              <button
-                type="button"
-                onClick={toggleDarkMode}
-                title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-                className="w-8 h-8 rounded-full bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
-              >
-                {darkMode ? <Sun className="w-3.5 h-3.5 stroke-[2.5]" /> : <Moon className="w-3.5 h-3.5 stroke-[2.5]" />}
-              </button>
 
               {/* Header GST Report Button */}
               <button
@@ -4075,10 +4061,83 @@ CREATE TABLE invoice_items (
                         <Mic className={`w-4 h-4 text-orange-500 ${isListening ? 'animate-bounce' : ''}`} />
                         <span className="text-[11px] font-black text-orange-850 uppercase tracking-widest">Voice Invoice Assist</span>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowVoiceHelp(!showVoiceHelp)}
+                          className="flex items-center gap-1 text-[9.5px] text-orange-850 hover:text-orange-950 bg-orange-100/80 hover:bg-orange-200/90 px-2 py-0.5 rounded-lg font-extrabold border border-orange-200/50 cursor-pointer select-none transition-all active:scale-95 shadow-2xs"
+                        >
+                          <Info className="w-2.5 h-2.5 text-orange-650" />
+                          <span>{showVoiceHelp ? 'Hide Info' : 'Help (कैसे बोलें?)'}</span>
+                        </button>
                         <span className="text-[8px] bg-orange-100/80 text-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest uppercase">SPEECH BETA</span>
                       </div>
                     </div>
+
+                    <AnimatePresence>
+                      {showVoiceHelp && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="bg-orange-500/5 p-3 rounded-xl border border-orange-100 space-y-2.5 text-xs text-neutral-700 mt-1 mb-2">
+                            <h5 className="font-extrabold text-[10px] text-orange-850 uppercase tracking-wider flex items-center gap-1">
+                              <span>🎧 Speaking Commands Guide (आवाज निर्देश)</span>
+                            </h5>
+                            
+                            <div className="space-y-2 text-[9px] leading-relaxed">
+                              {/* Rule 1 */}
+                              <div className="bg-white/70 p-2.5 rounded-lg border border-orange-100/40">
+                                <p className="font-bold text-neutral-800 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-orange-500" />
+                                  1. Customer name & items (ग्राहक का नाम और सामान):
+                                </p>
+                                <p className="text-neutral-500 mt-0.5">Start with name followed by <span className="font-bold italic text-slate-800">"ko"</span>, <span className="font-bold italic text-slate-800">"for"</span>, or <span className="font-bold italic text-slate-800">"to"</span>.</p>
+                                <p className="text-orange-700 font-mono font-extrabold mt-1 select-all hover:bg-orange-50 px-1 py-0.5 rounded transition-colors inline-block text-[9.5px]">
+                                  🗣️ "Ramesh ko 2 kilo aatta 60 aur 1 litre tel 120"
+                                </p>
+                                <p className="text-neutral-400 mt-0.5 text-[8px] italic">
+                                  (Auto parses: Customer: Ramesh, Item 1: Aatta [Qty: 2, Rate: 60], Item 2: Tel [Qty: 1, Rate: 120])
+                                </p>
+                              </div>
+
+                              {/* Rule 2 */}
+                              <div className="bg-white/70 p-2.5 rounded-lg border border-orange-100/40">
+                                <p className="font-bold text-neutral-800 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-orange-500" />
+                                  2. Multiple items (सामान और मूल्य):
+                                </p>
+                                <p className="text-neutral-500 mt-0.5">Use <span className="font-bold italic text-slate-800">"and"</span>, <span className="font-bold italic text-slate-800">"aur"</span>, or commas to split items.</p>
+                                <p className="text-orange-700 font-mono font-extrabold mt-1 select-all hover:bg-orange-50 px-1 py-0.5 rounded transition-colors inline-block text-[9.5px]">
+                                  🗣️ "3 piece soap 35 and 1 packet chips 10"
+                                </p>
+                                <p className="text-neutral-400 mt-0.5 text-[8px] italic">
+                                  (Format: <span className="font-bold">Quantity</span> + <span className="font-bold">Item Name</span> + <span className="font-bold">Price</span>. Units like kg/litre/piece/rs are automatically cleaned!)
+                                </p>
+                              </div>
+
+                              {/* Rule 3 */}
+                              <div className="bg-white/70 p-2.5 rounded-lg border border-orange-100/40">
+                                <p className="font-bold text-neutral-800 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-orange-500" />
+                                  3. Default Grahak (सामान्य रसीद):
+                                </p>
+                                <p className="text-neutral-500 mt-0.5">If customer name is omitted, it defaults to "Walk-in Customer".</p>
+                                <p className="text-orange-700 font-mono font-extrabold mt-1 select-all hover:bg-orange-50 px-1 py-0.5 rounded transition-colors inline-block text-[9.5px]">
+                                  🗣️ "10 registers 40, 5 pens 10"
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className="text-[8px] text-slate-450 text-right font-medium italic mt-1 bg-orange-100/20 p-1.5 rounded-md border border-orange-100/20">
+                              💡 Tip: Transcript read block check karein, agar koi typo ho, to edit karke "RE-PARSE & APPLY" dabaein!
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     <div className="flex items-center gap-3">
                       <button

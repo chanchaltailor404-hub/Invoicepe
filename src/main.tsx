@@ -8,3 +8,17 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+// Register Service Worker for offline support
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((registration) => {
+        console.log('InvoicePe ServiceWorker registered successfully with scope: ', registration.scope);
+      })
+      .catch((error) => {
+        console.error('InvoicePe ServiceWorker registration failed: ', error);
+      });
+  });
+}
+

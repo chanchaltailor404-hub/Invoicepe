@@ -2,22 +2,34 @@
   "name": "InvoicePe — Smart GST Billing",
   "short_name": "InvoicePe",
   "description": "Easiest GST invoice app for Indian businesses",
-  "start_url": "/",
+  "start_url": "/?pwa=true",
   "display": "standalone",
   "theme_color": "#FF6B00",
-  "background_color": "#FF6B00",
+  "background_color": "#FFFFFF",
   "icons": [
     {
-      "src": "/android-chrome-192x192.png?v=5",
+      "src": "/android-chrome-192x192.png?v=11",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "/android-chrome-512x512.png?v=5",
+      "src": "/android-chrome-192x192.png?v=11",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/android-chrome-512x512.png?v=11",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-512x512.png?v=11",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
