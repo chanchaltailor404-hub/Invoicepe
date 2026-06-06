@@ -677,6 +677,10 @@ export default function App() {
 
       if (profileErr) {
         console.error('Error upserting shop profile on signup:', profileErr);
+      } else {
+        console.log('Successfully upserted profile for new user, setting referralCode state to:', generatedCode);
+        setReferralCode(generatedCode);
+        localStorage.setItem('invoicepe_referral_code', generatedCode);
       }
 
       if (referrerUserId) {
@@ -1083,6 +1087,15 @@ export default function App() {
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
       if (sessionUser) {
+        const localCode = localStorage.getItem('invoicepe_referral_code');
+        if (!localCode || localCode === 'RAMESH20') {
+          const fallbackCode = generateReferralCode(sessionUser);
+          setReferralCode(fallbackCode);
+          localStorage.setItem('invoicepe_referral_code', fallbackCode);
+        } else {
+          setReferralCode(localCode);
+        }
+
         const metaShop = sessionUser.user_metadata?.shop_name;
         if (metaShop) {
           setShopName(metaShop);
@@ -1117,6 +1130,15 @@ export default function App() {
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
       if (sessionUser) {
+        const localCode = localStorage.getItem('invoicepe_referral_code');
+        if (!localCode || localCode === 'RAMESH20') {
+          const fallbackCode = generateReferralCode(sessionUser);
+          setReferralCode(fallbackCode);
+          localStorage.setItem('invoicepe_referral_code', fallbackCode);
+        } else {
+          setReferralCode(localCode);
+        }
+
         const metaShop = sessionUser.user_metadata?.shop_name;
         if (metaShop) {
           setShopName(metaShop);
@@ -1147,6 +1169,78 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Realtime subscription to keep local states synced whenever the database record updates in Supabase
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('Registering real-time subscription for shop_profiles: user_id =', user.id);
+    const channel = supabase
+      .channel(`realtime-profile-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'shop_profiles',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('Realtime update captured for shop_profiles:', payload);
+          const updatedProfile = payload.new as any;
+          if (updatedProfile) {
+            if (updatedProfile.referral_code && updatedProfile.referral_code !== 'RAMESH20') {
+              console.log('Realtime setting referralCode state to:', updatedProfile.referral_code);
+              setReferralCode(updatedProfile.referral_code);
+              localStorage.setItem('invoicepe_referral_code', updatedProfile.referral_code);
+            }
+            if (updatedProfile.shop_name) {
+              setShopName(updatedProfile.shop_name);
+              setCustomShopInput(updatedProfile.shop_name);
+              localStorage.setItem('invoicepe_shop_name', updatedProfile.shop_name);
+            }
+            if (updatedProfile.upi_id) {
+              const loadedUpi = updatedProfile.upi_id === 'shopname@upi' ? '' : updatedProfile.upi_id;
+              setUpiId(loadedUpi);
+              setCustomUpiInput(loadedUpi);
+              localStorage.setItem('invoicepe_upi_id', loadedUpi);
+            }
+            if (updatedProfile.owner_name) {
+              setOwnerName(updatedProfile.owner_name);
+              setCustomOwnerInput(updatedProfile.owner_name);
+              localStorage.setItem('invoicepe_owner_name', updatedProfile.owner_name);
+            }
+            if (updatedProfile.phone) {
+              setShopPhone(updatedProfile.phone);
+              setCustomShopPhoneInput(updatedProfile.phone);
+              localStorage.setItem('invoicepe_shop_phone', updatedProfile.phone);
+            }
+            if (updatedProfile.address) {
+              setShopAddress(updatedProfile.address);
+              setCustomShopAddressInput(updatedProfile.address);
+              localStorage.setItem('invoicepe_shop_address', updatedProfile.address);
+            }
+            if (updatedProfile.pro_until) {
+              setProUntil(updatedProfile.pro_until);
+              localStorage.setItem('invoicepe_pro_until', updatedProfile.pro_until);
+            }
+            if (updatedProfile.gstin) {
+              setGstin(updatedProfile.gstin);
+              setCustomGstinInput(updatedProfile.gstin);
+              localStorage.setItem('invoicepe_gstin', updatedProfile.gstin);
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`Realtime channel status: ${status}`);
+      });
+
+    return () => {
+      console.log('Cleaning up real-time stream for shop_profiles for user_id:', user.id);
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   // Seed standard dummy customers/invoices into Supabase (user isolated)
   const handleSeedDatabase = async () => {
@@ -3609,7 +3703,7 @@ CREATE TABLE invoice_items (
                     <div className="text-center bg-white p-4 rounded-xl border border-orange-100 shadow-sm space-y-2">
                       <p className="text-[9.5px] text-slate-450 font-bold uppercase tracking-wider">Aapka Referral Code</p>
                       <p className="text-3xl font-black text-orange-500 tracking-widest select-all font-sans">
-                        {referralCode || 'RAMESH20'}
+                        {referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20')}
                       </p>
                       <p className="text-[10px] text-slate-500 font-bold leading-relaxed">
                         Apne dosto ko refer karein. Har signup par aapko aur aapke dost dono ko <span className="text-orange-500 font-extrabold">1 month absolute free Pro status</span> milega!
@@ -3632,7 +3726,7 @@ CREATE TABLE invoice_items (
                     <button
                       type="button"
                       onClick={() => {
-                        const codeText = referralCode || 'RAMESH20';
+                        const codeText = referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20');
                         const shareMsg = `Namaste! Main InvoicePe use karta hun GST billing ke liye — bilkul free aur bahut aasaan! Mere referral code se signup karo aur 1 mahina free pao: ${codeText} 👉 invoicepe-gamma.vercel.app`;
                         window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}`, '_blank');
                       }}
@@ -3814,10 +3908,10 @@ CREATE TABLE invoice_items (
 
               {/* Form container drawer panel slide-up */}
               <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                initial={{ y: '30%', opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: '30%', opacity: 0 }}
+                transition={{ type: 'spring', damping: 28, stiffness: 220 }}
                 className="absolute left-0 right-0 bottom-0 max-h-[85vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
               >
                 {/* Header of Drawer */}
@@ -3950,10 +4044,10 @@ CREATE TABLE invoice_items (
 
               {/* Form container drawer panel slide-up */}
               <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                initial={{ y: '30%', opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: '30%', opacity: 0 }}
+                transition={{ type: 'spring', damping: 28, stiffness: 220 }}
                 className="absolute left-0 right-0 bottom-0 max-h-[92vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
               >
                 {/* Header of Drawer */}

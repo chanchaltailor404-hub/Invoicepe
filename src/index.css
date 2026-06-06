@@ -48,53 +48,221 @@
 
 /* Automatically style standard cards and sections with white bg in light mode */
 .dark .bg-white,
+.dark .bg-white\/10,
+.dark .bg-white\/20,
+.dark .bg-white\/30,
+.dark .bg-white\/40,
+.dark .bg-white\/50,
+.dark .bg-white\/60,
+.dark .bg-white\/70,
+.dark .bg-white\/80,
+.dark .bg-white\/90,
 .dark .bg-\[\#FFFBF7\],
 .dark .bg-\[\#FFFBF7\]\/80,
 .dark .bg-\[\#FFFBF7\]\/40,
-.dark .bg-slate-50,
-.dark .bg-zinc-50\/40,
-.dark .bg-slate-50\/40,
-.dark .bg-orange-50\/50,
-.dark .bg-orange-50,
 .dark .bg-[#FFFBF7],
+.dark .bg-slate-50,
+.dark .bg-slate-50\/40,
+.dark .bg-slate-50\/50,
+.dark .bg-slate-100,
+.dark .bg-slate-200,
+.dark .bg-zinc-50,
+.dark .bg-zinc-50\/40,
+.dark .bg-zinc-100,
+.dark .bg-zinc-200,
+.dark .bg-neutral-50,
+.dark .bg-neutral-100,
+.dark .bg-neutral-200,
+.dark .bg-orange-50,
+.dark .bg-orange-50\/50,
+.dark .bg-orange-50\/40,
+.dark .bg-orange-50\/30,
+.dark .bg-orange-50\/20,
+.dark .bg-orange-50\/10,
+.dark .bg-orange-100,
+.dark .bg-orange-200,
 .dark div.bg-white,
 .dark section.bg-white,
-.dark li.bg-white {
+.dark li.bg-white,
+.dark [class*="bg-[#FFFBF7]"],
+.dark [class*="bg-\\#FFFBF7"] {
   background-color: #111827 !important; /* Premium dark card background */
   border-color: #1f2937 !important; /* Gray-800 border */
   color: #f3f4f6 !important;
 }
 
 /* Dynamic Text Overrides for contrast */
+.dark .text-slate-950,
 .dark .text-slate-900,
+.dark .text-slate-850,
 .dark .text-slate-800,
 .dark .text-slate-755,
 .dark .text-slate-700,
+.dark .text-neutral-950,
 .dark .text-neutral-900,
-.dark .text-neutral-800 {
+.dark .text-neutral-850,
+.dark .text-neutral-800,
+.dark .text-neutral-750,
+.dark .text-neutral-700,
+.dark .text-zinc-950,
+.dark .text-zinc-900,
+.dark .text-zinc-850,
+.dark .text-zinc-800,
+.dark .text-zinc-700,
+.dark .text-stone-950,
+.dark .text-stone-900,
+.dark .text-stone-850,
+.dark .text-stone-800,
+.dark .text-stone-700,
+.dark .text-gray-950,
+.dark .text-gray-900,
+.dark .text-gray-850,
+.dark .text-gray-800,
+.dark .text-gray-700 {
   color: #f9fafb !important; /* Warm pure white/slate */
 }
 
+.dark .text-slate-650,
 .dark .text-slate-600,
 .dark .text-slate-500,
 .dark .text-slate-450,
 .dark .text-slate-400,
+.dark .text-neutral-650,
+.dark .text-neutral-660,
+.dark .text-neutral-600,
 .dark .text-neutral-500,
+.dark .text-neutral-450,
 .dark .text-neutral-400,
+.dark .text-zinc-650,
+.dark .text-zinc-600,
+.dark .text-zinc-500,
+.dark .text-zinc-400,
+.dark .text-stone-600,
+.dark .text-stone-500,
+.dark .text-stone-400,
+.dark .text-gray-650,
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-gray-400,
 .dark p.text-slate-500,
 .dark p.text-slate-400 {
   color: #9ca3af !important; /* Soft gray for secondary label contrast */
 }
 
-/* Custom cards */
+/* Elegant light orange and amber overrides for dark mode readability */
+.dark .text-orange-950,
+.dark .text-orange-900,
+.dark .text-orange-850,
+.dark .text-orange-800,
+.dark .text-amber-950,
+.dark .text-amber-900,
+.dark .text-amber-850,
+.dark .text-amber-800,
+.dark .text-yellow-950,
+.dark .text-yellow-900,
+.dark .text-yellow-800 {
+  color: #fed7aa !important; /* Outstanding light readable warm orange/amber */
+}
+.dark .text-orange-700,
+.dark .text-orange-600,
+.dark .text-orange-750,
+.dark .text-amber-700,
+.dark .text-amber-600 {
+  color: #fb923c !important; /* Clear orange color */
+}
+
+/* Red / Emerald / Indigo / Blue dark mode readability high contrast overrides */
+.dark .text-red-950,
+.dark .text-red-900,
+.dark .text-red-850,
+.dark .text-red-800 {
+  color: #fca5a5 !important; /* readable bright red */
+}
+.dark .text-emerald-950,
+.dark .text-emerald-900,
+.dark .text-emerald-850,
+.dark .text-emerald-800,
+.dark .text-green-950,
+.dark .text-green-900,
+.dark .text-green-800 {
+  color: #6ee7b7 !important; /* readable bright green */
+}
+.dark .text-blue-950,
+.dark .text-blue-900,
+.dark .text-blue-850,
+.dark .text-blue-800,
+.dark .text-indigo-950,
+.dark .text-indigo-900,
+.dark .text-indigo-850,
+.dark .text-indigo-800 {
+  color: #bfdbfe !important; /* readable bright blue/indigo */
+}
+
+/* Backplate light neutral buttons in dark containers */
+.dark .bg-neutral-100,
+.dark .bg-slate-100,
+.dark .bg-zinc-100,
+.dark .bg-slate-50\/40,
+.dark .bg-zinc-50\/40 {
+  background-color: #1f2937 !important;
+  color: #f3f4f6 !important;
+}
+.dark .bg-neutral-100:hover,
+.dark .bg-slate-100:hover,
+.dark .bg-zinc-100:hover,
+.dark .hover\:bg-neutral-50:hover,
+.dark .hover\:bg-neutral-100:hover,
+.dark .hover\:bg-neutral-200:hover,
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-slate-250:hover,
+.dark .hover\:bg-slate-200:hover,
+.dark .hover\:bg-zinc-50:hover,
+.dark .hover\:bg-zinc-100:hover,
+.dark .hover\:bg-zinc-200:hover,
+.dark .hover\:bg-orange-50:hover,
+.dark .hover\:bg-orange-100:hover,
+.dark .hover\:bg-orange-200:hover,
+.dark .hover\:\!bg-slate-50:hover,
+.dark .hover\:\!bg-slate-100:hover,
+.dark .hover\:\!bg-slate-200:hover,
+.dark .group:hover .group-hover\:bg-orange-50 {
+  background-color: #374151 !important;
+  color: #ffffff !important;
+}
+
+/* Hover and active text colors override */
+.dark .hover\:text-slate-900:hover,
+.dark .hover\:text-slate-950:hover,
+.dark .hover\:text-slate-800:hover,
+.dark .hover\:text-black:hover,
+.dark .hover\:text-neutral-900:hover,
+.dark .hover\:text-zinc-900:hover,
+.dark .group:hover .group-hover\:text-orange-650 {
+  color: #f9fafb !important;
+}
+
+/* Custom buttons disabled, loading states high-fidelity contrast */
+.dark button:disabled,
+.dark .disabled\:bg-slate-300:disabled,
+.dark [disabled].bg-slate-300 {
+  background-color: #1f2937 !important;
+  color: #6b7280 !important;
+  opacity: 0.6;
+}
+
+/* Custom cards and borders */
+.dark .border-slate-50,
 .dark .border-slate-100,
 .dark .border-slate-150,
 .dark .border-slate-200,
+.dark .border-slate-250,
+.dark .border-orange-50,
 .dark .border-orange-100,
 .dark .border-orange-100\/55,
 .dark .border-orange-100\/50,
 .dark .border-orange-50 {
-  border-color: #374151 !important; /* Solid high-contrast dark border */
+  border-color: #27272a !important; /* Solid high-contrast zink/gray-800 border */
 }
 
 /* Modals, drawers and dialog boxes styling */
@@ -104,6 +272,13 @@
   background-color: #0b0f19 !important;
   border-color: #1f2937 !important;
   color: #f1f5f9 !important;
+}
+
+.dark .bg-white.rounded-t-3xl div,
+.dark .bg-white.rounded-t-3xl header,
+.dark .bg-white.rounded-t-3xl .sticky {
+  background-color: #0b0f19 !important;
+  border-color: #1f2937 !important;
 }
 
 .dark .divide-slate-100 > * + * {
