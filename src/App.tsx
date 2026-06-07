@@ -557,7 +557,7 @@ export default function App() {
 
       // If no profile exists, create a default unique one!
       if (!data) {
-        console.log('No shop profile entry found. Inserting default shop profile entry...');
+        console.log('No shop profile entry found on startup. Automatically upserting default empty shop profile row for user...');
         const generatedCode = generateReferralCode(currentUser);
         const nameForCode = currentUser.user_metadata?.owner_name || currentUser.user_metadata?.shop_name || currentUser.email?.split('@')[0] || 'MERCHANT';
         
@@ -569,21 +569,24 @@ export default function App() {
           address: currentUser.user_metadata?.address || '',
           upi_id: currentUser.user_metadata?.upi_id || '',
           gstin: currentUser.user_metadata?.gstin || '',
-          referral_code: generatedCode,
+          referral_code: generatedCode || null,
           email: currentUser.email,
           plan: 'free'
         };
 
-        const { data: insertedData, error: insertError } = await supabase
+        console.log('DEBUG [startup insert]: payload =', defaultProfile);
+
+        const { data: upsertedData, error: upsertError } = await supabase
           .from('shop_profiles')
-          .insert(defaultProfile)
+          .upsert(defaultProfile, { onConflict: 'user_id' })
           .select()
           .maybeSingle();
 
-        if (insertError) {
-          console.error('Error inserting default shop_profile:', insertError);
-        } else if (insertedData) {
-          data = insertedData;
+        if (upsertError) {
+          console.error('❌ Error upserting default shop_profile on startup:', upsertError);
+        } else if (upsertedData) {
+          console.log('✅ Default empty shop_profile row upserted on startup successfully:', upsertedData);
+          data = upsertedData;
         }
       }
 
@@ -1116,31 +1119,32 @@ export default function App() {
     localStorage.setItem('invoicepe_shop_address', newAddress);
 
     setIsSettingsOpen(false);
-    showToast(`Vyapaar profile successfully update hui!`, 'success');
 
     if (user) {
       try {
-        console.log('Saving shop profile to Supabase shop_profiles table...');
+        const payload = {
+          user_id: user.id,
+          shop_name: newName,
+          owner_name: newOwnerName,
+          phone: newPhone,
+          address: newAddress,
+          upi_id: newUpi,
+          gstin: newGstin,
+          referral_code: referralCode && referralCode.trim() !== '' ? referralCode : null,
+          email: user.email
+        };
+        console.log('DEBUG [handleSaveSettings]: Saving shop profile payload:', payload);
+
         const { error: profileErr } = await supabase
           .from('shop_profiles')
-          .upsert({
-            user_id: user.id,
-            shop_name: newName,
-            owner_name: newOwnerName,
-            phone: newPhone,
-            address: newAddress,
-            upi_id: newUpi,
-            gstin: newGstin,
-            referral_code: referralCode,
-            email: user.email
-          }, { onConflict: 'user_id' });
+          .upsert(payload, { onConflict: 'user_id' });
 
         if (profileErr) {
-          console.error('Error upserting to shop_profiles table:', profileErr);
-          showToast('Table synchronization failed, but saved locally.', 'info');
+          console.error('❌ Error saving/upserting to shop_profiles table:', profileErr);
+          showToast('Database sync failed, saved locally: ' + profileErr.message, 'info');
         } else {
-          console.log('Shop profile table upsert complete!');
-          showToast('Profile synced with cloud ledger!', 'success');
+          console.log('✅ Shop profile table upsert complete successfully!');
+          showToast('Vyapaar settings saved and synced successfully!', 'success');
         }
 
         // Keep user metadata synced as fallback
