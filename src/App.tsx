@@ -458,30 +458,29 @@ export default function App() {
     });
   }, [adminProfiles, adminSearch]);
 
-  // Check if user is currently Pro or has premium trial access (first 30 invoices on free plan)
+  // Check if user is currently Pro (either through active paid subscription or non-expired referral reward)
   const isPro = useMemo(() => {
     if (!user) {
       return false; // Absolutely no Pro features if not logged in
     }
     
-    console.log('DEBUG [isPro evaluation]: pro_until =', proUntil, 'User Plan =', userPlan);
     const planNormalized = (userPlan || '').toLowerCase().trim();
-    if (planNormalized === 'pro' || planNormalized === 'business') {
-      if (proUntil) {
-        const expiryDate = new Date(proUntil);
-        const today = new Date();
-        if (expiryDate <= today) {
-          console.warn('DEBUG [isPro evaluation]: Subscription expired at:', expiryDate);
-          // Revert to free plan on expiration
-          return invoices.length < 30;
-        }
+    const isPaidPlan = planNormalized === 'pro' || planNormalized === 'business';
+
+    // Check expiration if proUntil is set
+    let isExpired = false;
+    if (proUntil) {
+      const expiryDate = new Date(proUntil);
+      const today = new Date();
+      if (expiryDate <= today) {
+        isExpired = true;
       }
-      return true;
     }
 
-    // Free plan users have premium features enabled ONLY within their first 30 invoices
-    return invoices.length < 30;
-  }, [user, proUntil, userPlan, invoices.length]);
+    const resolvedPro = (isPaidPlan || proUntil !== null) && !isExpired;
+    console.log('DEBUG [isPro evaluation]: plan =', userPlan, 'proUntil =', proUntil, 'isExpired =', isExpired, 'Resolved Pro =', resolvedPro);
+    return resolvedPro;
+  }, [user, proUntil, userPlan]);
 
   // Calculated metrics
   const metrics = useMemo(() => {
@@ -587,7 +586,11 @@ export default function App() {
         .maybeSingle();
 
       if (error) {
-        console.warn('Error fetching shop profile:', error);
+        console.warn('Error fetching shop profile, resetting plan to free:', error);
+        setUserPlan('free');
+        setProUntil(null);
+        localStorage.setItem('invoicepe_plan', 'free');
+        localStorage.removeItem('invoicepe_pro_until');
         return;
       }
 
@@ -679,16 +682,45 @@ export default function App() {
         setCustomShopAddressInput(data.address || '');
 
         setReferralCode(loadedReferralCode || '');
-        setProExpiresAt(data.pro_expires_at || null);
-        setProUntil(data.pro_until || null);
+
+        // Resolve expiration and plan strictly to prevent auto-Pro upgrades
+        let finalProUntil = data.pro_until || null;
+        let finalPlan = 'free';
 
         const rawPlan = data.plan || 'free';
-        const normalizedPlan = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
-        const finalPlan = (normalizedPlan === 'pro' || normalizedPlan === 'business') ? normalizedPlan : 'free';
-        setUserPlan(finalPlan);
+        const planNormalized = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
 
-        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded pro_until from Supabase:', data.pro_until);
-        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded plan from Supabase:', finalPlan);
+        let referralTrialActive = false;
+        if (finalProUntil) {
+          const expiryDate = new Date(finalProUntil);
+          const today = new Date();
+          if (expiryDate > today) {
+            referralTrialActive = true;
+          } else {
+            console.warn('DEBUG [fetchShopProfileFromSupabase]: pro_until trial has expired. Reverting plan in DB to free.');
+            try {
+              await supabase
+                .from('shop_profiles')
+                .update({ plan: 'free', pro_until: null, pro_expires_at: null })
+                .eq('user_id', currentUser.id);
+            } catch (dbErr) {
+              console.error('Failed to automatically revert expired status in database:', dbErr);
+            }
+            finalProUntil = null;
+          }
+        }
+
+        if (planNormalized === 'business') {
+          finalPlan = 'business';
+        } else if (planNormalized === 'pro' || referralTrialActive) {
+          finalPlan = 'pro';
+        }
+
+        setUserPlan(finalPlan);
+        setProUntil(finalProUntil);
+        setProExpiresAt(finalProUntil);
+
+        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded pro_until:', finalProUntil, 'Resolved finalPlan:', finalPlan);
 
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
@@ -701,11 +733,17 @@ export default function App() {
         if (data.referral_code) {
           localStorage.setItem('invoicepe_referral_code', data.referral_code);
         }
-        if (data.pro_until) {
-          localStorage.setItem('invoicepe_pro_until', data.pro_until);
+        if (finalProUntil) {
+          localStorage.setItem('invoicepe_pro_until', finalProUntil);
         } else {
           localStorage.removeItem('invoicepe_pro_until');
         }
+      } else {
+        // Fallback if data from DB is completely null or missing
+        setUserPlan('free');
+        setProUntil(null);
+        localStorage.setItem('invoicepe_plan', 'free');
+        localStorage.removeItem('invoicepe_pro_until');
       }
 
       // Fetch referrals where current user is the referrer
