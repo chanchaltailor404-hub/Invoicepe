@@ -438,14 +438,27 @@ export default function App() {
 
   // Check if user is currently Pro
   const isPro = useMemo(() => {
+    if (!user) {
+      return false; // Absolutely no Pro features if not logged in
+    }
+    
     console.log('DEBUG [isPro evaluation]: pro_until =', proUntil, 'User Plan =', userPlan);
-    if (!proUntil) return false;
-    const expiryDate = new Date(proUntil);
-    const today = new Date();
-    const active = expiryDate > today;
-    console.log(`DEBUG [isPro evaluation]: Expiry = ${expiryDate.toISOString()}, Today = ${today.toISOString()}, Active = ${active}`);
-    return active;
-  }, [proUntil, userPlan]);
+    const planNormalized = (userPlan || '').toLowerCase().trim();
+    if (planNormalized !== 'pro' && planNormalized !== 'business') {
+      return false; // Free plan or unknown plans get no Pro access
+    }
+
+    if (proUntil) {
+      const expiryDate = new Date(proUntil);
+      const today = new Date();
+      if (expiryDate <= today) {
+        console.warn('DEBUG [isPro evaluation]: Subscription expired at:', expiryDate);
+        return false;
+      }
+    }
+    
+    return true;
+  }, [user, proUntil, userPlan]);
 
   // Calculated metrics
   const metrics = useMemo(() => {
@@ -1059,7 +1072,7 @@ export default function App() {
       setAuthEmail('');
       setAuthPassword('');
 
-      // Clear cached and state-level shop configurations
+      // Clear cached and state-level shop configurations & subscription status
       setShopName('Verma General Store');
       setCustomShopInput('Verma General Store');
       setUpiId('');
@@ -1072,6 +1085,8 @@ export default function App() {
       setCustomShopPhoneInput('');
       setShopAddress('');
       setCustomShopAddressInput('');
+      setUserPlan('free');
+      setProUntil(null);
 
       localStorage.removeItem('invoicepe_shop_name');
       localStorage.removeItem('invoicepe_upi_id');
@@ -1079,6 +1094,8 @@ export default function App() {
       localStorage.removeItem('invoicepe_owner_name');
       localStorage.removeItem('invoicepe_shop_phone');
       localStorage.removeItem('invoicepe_shop_address');
+      localStorage.removeItem('invoicepe_plan');
+      localStorage.removeItem('invoicepe_pro_until');
 
       showToast('Logged out successfully from InvoicePe', 'info');
     } catch (err: any) {
@@ -1420,6 +1437,10 @@ export default function App() {
         fetchInvoicesFromSupabase(true, sessionUser);
         fetchUdhaar(true, sessionUser);
       } else {
+        setUserPlan('free');
+        setProUntil(null);
+        localStorage.removeItem('invoicepe_plan');
+        localStorage.removeItem('invoicepe_pro_until');
         setAuthLoading(false);
         setIsLoading(false);
       }
@@ -1472,6 +1493,10 @@ export default function App() {
       } else {
         setInvoices([]);
         setUdhaars([]);
+        setUserPlan('free');
+        setProUntil(null);
+        localStorage.removeItem('invoicepe_plan');
+        localStorage.removeItem('invoicepe_pro_until');
         setIsLoading(false);
       }
       setAuthLoading(false);
@@ -2200,9 +2225,9 @@ Powered by InvoicePe 🧾`;
 
   // Start Voice Recognition Recording
   const startVoiceInvoice = () => {
-    if (!isPro) {
+    if (!isPro && invoices.length >= 50) {
       setShowLimitPopup(true);
-      showToast("Voice billing is a PRO feature! Please upgrade to PRO to use. 🚀", "info");
+      showToast("Free plan limit (50 invoices) exceeded. Please upgrade to Pro or Business! 🚀", "info");
       return;
     }
 
@@ -3658,12 +3683,12 @@ CREATE TABLE invoice_items (
                   userPlan === 'business' ? (
                     <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-indigo-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-indigo-400 font-mono">
                       <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
-                      <span>BUSINESS ACTIVE until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Expired'}</span>
+                      <span>BUSINESS ACTIVE {proUntil ? `until ${new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Permanent'}</span>
                     </span>
                   ) : (
                     <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-emerald-400 font-mono">
                       <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
-                      <span>PRO ACTIVE until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Expired'}</span>
+                      <span>PRO ACTIVE {proUntil ? `until ${new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Permanent'}</span>
                     </span>
                   )
                 )}
@@ -3676,12 +3701,14 @@ CREATE TABLE invoice_items (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${isPro ? 'bg-emerald-500' : 'bg-orange-500'}`} />
-                  <span className="text-xs font-black text-slate-800 uppercase tracking-wider font-mono">Invoice Usage (Limit: 50)</span>
+                  <span className="text-xs font-black text-slate-800 uppercase tracking-wider font-mono">
+                    {isPro ? 'Invoice Usage (Unlimited)' : 'Invoice Usage (Limit: 50)'}
+                  </span>
                 </div>
                 {!isPro ? (
                   <span className="text-[10px] font-extrabold text-orange-600 bg-orange-50 px-2 py-1 rounded-md border border-orange-100 uppercase">Free Plan</span>
                 ) : (
-                  <span className="text-[10px] font-extrabold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 uppercase font-mono">{userPlan === 'business' ? 'Business Plan' : 'Pro Plan'}</span>
+                  <span className="text-[10px] font-extrabold text-indigo-600 bg-indigo-55/10 px-2.5 py-1 rounded-md border border-indigo-100/50 uppercase font-mono">{userPlan === 'business' ? 'Business Plan' : 'Pro Plan'}</span>
                 )}
               </div>
               
@@ -3689,16 +3716,16 @@ CREATE TABLE invoice_items (
                 <div className="relative pt-1">
                   <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-slate-100">
                     <div 
-                      style={{ width: `${Math.min((invoices.length / 50) * 100, 100)}%` }} 
+                      style={{ width: isPro ? '100%' : `${Math.min((invoices.length / 50) * 100, 100)}%` }} 
                       className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center transition-all duration-500 rounded-full ${
-                        isPro ? 'bg-emerald-500' : invoices.length >= 45 ? 'bg-red-500 animate-pulse' : invoices.length >= 35 ? 'bg-orange-500' : 'bg-amber-500'
+                        isPro ? 'bg-gradient-to-r from-emerald-500 to-indigo-500' : invoices.length >= 45 ? 'bg-red-500 animate-pulse' : invoices.length >= 35 ? 'bg-orange-500' : 'bg-amber-500'
                       }`}
                     />
                   </div>
                 </div>
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 font-mono">
                   <span>{invoices.length} Bills Created</span>
-                  <span>{isPro ? 'Unlimited Available' : '50 Bills Limit'}</span>
+                  <span>{isPro ? 'Unlimited Invoices Unlocked' : '50 Bills Limit'}</span>
                 </div>
               </div>
 
