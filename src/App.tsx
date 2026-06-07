@@ -86,8 +86,28 @@ export default function App() {
   const [totalReferrals, setTotalReferrals] = useState(0);
   const [freeMonths, setFreeMonths] = useState(0);
   const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
-  const [proUntil, setProUntil] = useState<string | null>(() => localStorage.getItem('invoicepe_pro_until') || null);
-  const [userPlan, setUserPlan] = useState<string>(() => localStorage.getItem('invoicepe_plan') || 'free');
+  const [proUntil, setProUntil] = useState<string | null>(() => {
+    try {
+      const p = localStorage.getItem('invoicepe_pro_until');
+      if (!p) return null;
+      const d = new Date(p);
+      if (isNaN(d.getTime())) return null;
+      return p;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [userPlan, setUserPlan] = useState<string>(() => {
+    try {
+      const p = localStorage.getItem('invoicepe_plan');
+      if (!p) return 'free';
+      const normalized = p.toLowerCase().trim();
+      if (normalized === 'pro' || normalized === 'business') {
+        return normalized;
+      }
+    } catch (_) {}
+    return 'free';
+  });
 
   // Dark mode state control (Disabled: client requested pure light mode)
   const darkMode = false;
@@ -213,6 +233,8 @@ export default function App() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [showVoiceHelp, setShowVoiceHelp] = useState(false);
   const [showLimitPopup, setShowLimitPopup] = useState(false);
+  const [upgradeReferralCode, setUpgradeReferralCode] = useState('');
+  const [appliedReferral, setAppliedReferral] = useState<string | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [formItems, setFormItems] = useState<InvoiceItem[]>([
@@ -659,11 +681,13 @@ export default function App() {
         setProExpiresAt(data.pro_expires_at || null);
         setProUntil(data.pro_until || null);
 
-        const loadedPlan = data.plan || 'free';
-        setUserPlan(loadedPlan);
+        const rawPlan = data.plan || 'free';
+        const normalizedPlan = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
+        const finalPlan = (normalizedPlan === 'pro' || normalizedPlan === 'business') ? normalizedPlan : 'free';
+        setUserPlan(finalPlan);
 
         console.log('DEBUG [fetchShopProfileFromSupabase] Loaded pro_until from Supabase:', data.pro_until);
-        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded plan from Supabase:', loadedPlan);
+        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded plan from Supabase:', finalPlan);
 
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
@@ -672,7 +696,7 @@ export default function App() {
         localStorage.setItem('invoicepe_owner_name', data.owner_name || '');
         localStorage.setItem('invoicepe_shop_phone', data.phone || '');
         localStorage.setItem('invoicepe_shop_address', data.address || '');
-        localStorage.setItem('invoicepe_plan', loadedPlan);
+        localStorage.setItem('invoicepe_plan', finalPlan);
         if (data.referral_code) {
           localStorage.setItem('invoicepe_referral_code', data.referral_code);
         }
@@ -885,6 +909,42 @@ export default function App() {
     }
   };
 
+  // Custom Inventory Presets for shop owners
+  const [customPresets, setCustomPresets] = useState<{ name: string; price: number }[]>(() => {
+    try {
+      const saved = localStorage.getItem('invoicepe_custom_presets');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const saveToCustomPresets = (name: string, price: number) => {
+    const cleanName = name.trim();
+    if (!cleanName) {
+      showToast('Please enter an item name first!', 'info');
+      return;
+    }
+    const alreadyExists = customPresets.some(
+      p => p.name.toLowerCase() === cleanName.toLowerCase()
+    );
+    if (alreadyExists) {
+      showToast(`"${cleanName}" is already saved in your inventory presets!`, 'info');
+      return;
+    }
+    const updated = [...customPresets, { name: cleanName, price: Number(price) || 0 }];
+    setCustomPresets(updated);
+    localStorage.setItem('invoicepe_custom_presets', JSON.stringify(updated));
+    showToast(`Saved "${cleanName}" to inventory presets! 📦`, 'success');
+  };
+
+  const deleteCustomPreset = (nameToDel: string) => {
+    const updated = customPresets.filter(p => p.name.toLowerCase() !== nameToDel.toLowerCase());
+    setCustomPresets(updated);
+    localStorage.setItem('invoicepe_custom_presets', JSON.stringify(updated));
+    showToast('Removed preset from inventory', 'info');
+  };
+
   const handleRegisterReferralAndProfile = async (newUser: any, enteredCode: string) => {
     if (!newUser) return;
     try {
@@ -983,6 +1043,105 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error handling post-signup logic:', err);
+    }
+  };
+
+  const handleApplyUpgradeReferral = async () => {
+    const cleanCode = upgradeReferralCode.trim().toUpperCase();
+    if (!cleanCode) {
+      showToast('Please enter a referral code first!', 'info');
+      return;
+    }
+    if (!user) {
+      showToast('Please login first to apply a referral code!', 'info');
+      return;
+    }
+    const ownCode = (referralCode || '').trim().toUpperCase();
+    if (ownCode && cleanCode === ownCode) {
+      showToast('You cannot use your own referral code!', 'info');
+      return;
+    }
+
+    try {
+      const { data: profileWithCode, error: lookupErr } = await supabase
+        .from('shop_profiles')
+        .select('user_id, owner_name, shop_name')
+        .eq('referral_code', cleanCode)
+        .maybeSingle();
+
+      if (lookupErr || !profileWithCode) {
+        showToast('Invalid referral code! Verification failed.', 'info');
+        return;
+      }
+
+      setAppliedReferral(cleanCode);
+      
+      const claimExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const claimExpiryStr = claimExpiry.toISOString();
+      
+      // Update local state immediately
+      setUserPlan('pro');
+      setProUntil(claimExpiryStr);
+      localStorage.setItem('invoicepe_plan', 'pro');
+      localStorage.setItem('invoicepe_pro_until', claimExpiryStr);
+
+      showToast(`Referral code "${cleanCode}" applied! 1 Month of Pro Plan activated for FREE. 🎉`, 'success');
+
+      // Update current user profile on DB to Pro with expiry
+      await supabase
+        .from('shop_profiles')
+        .update({
+          plan: 'pro',
+          pro_until: claimExpiryStr,
+          pro_expires_at: claimExpiryStr
+        })
+        .eq('user_id', user.id);
+
+      // Sync backend: Log referral record if not already exists
+      const { data: existingRef } = await supabase
+        .from('referrals')
+        .select('id')
+        .eq('referred_user_id', user.id)
+        .maybeSingle();
+
+      if (!existingRef) {
+        // Insert referral log connection
+        await supabase
+          .from('referrals')
+          .insert({
+            referrer_user_id: profileWithCode.user_id,
+            referred_user_id: user.id,
+            referral_code: cleanCode
+          });
+
+        // Extend referrer's pro status by 30 days as reward
+        const { data: referrerProfile } = await supabase
+          .from('shop_profiles')
+          .select('pro_until, pro_expires_at')
+          .eq('user_id', profileWithCode.user_id)
+          .maybeSingle();
+
+        let targetExpiry = new Date();
+        const currentExpiryStr = referrerProfile?.pro_until || referrerProfile?.pro_expires_at;
+        if (currentExpiryStr) {
+          const currentExpiry = new Date(currentExpiryStr);
+          if (currentExpiry > targetExpiry) {
+            targetExpiry = currentExpiry;
+          }
+        }
+        targetExpiry.setDate(targetExpiry.getDate() + 30);
+
+        await supabase
+          .from('shop_profiles')
+          .update({
+            pro_until: targetExpiry.toISOString(),
+            pro_expires_at: targetExpiry.toISOString()
+          })
+          .eq('user_id', profileWithCode.user_id);
+      }
+    } catch (err) {
+      console.error('Error applying upgrade referral:', err);
+      showToast('Error validating referral code. Please try again.', 'info');
     }
   };
 
@@ -1390,6 +1549,12 @@ export default function App() {
 
   // Auth flow and sessions loading effect
   useEffect(() => {
+    // Automatically clear stale cached plan values on app startup to guarantee fresh validation
+    localStorage.removeItem('invoicepe_plan');
+    localStorage.removeItem('invoicepe_pro_until');
+    setUserPlan('free');
+    setProUntil(null);
+
     // 1. Initial Session Get
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
@@ -1568,8 +1733,11 @@ export default function App() {
             }
             if (updatedProfile.plan !== undefined) {
               console.log('DEBUG [realtime]: plan updated =', updatedProfile.plan);
-              setUserPlan(updatedProfile.plan || 'free');
-              localStorage.setItem('invoicepe_plan', updatedProfile.plan || 'free');
+              const rawPlan = updatedProfile.plan || 'free';
+              const normalizedPlan = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
+              const finalPlan = (normalizedPlan === 'pro' || normalizedPlan === 'business') ? normalizedPlan : 'free';
+              setUserPlan(finalPlan);
+              localStorage.setItem('invoicepe_plan', finalPlan);
             }
             if (updatedProfile.gstin) {
               setGstin(updatedProfile.gstin);
@@ -4678,7 +4846,7 @@ CREATE TABLE invoice_items (
                       type="button"
                       onClick={() => {
                         const codeText = referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20');
-                        const shareMsg = `Namaste! Main InvoicePe use karta hun GST billing ke liye — bilkul free aur bahut aasaan! Mere referral code se signup karo aur 1 mahina free pao: ${codeText} 👉 invoicepe-gamma.vercel.app`;
+                        const shareMsg = `Namaste! Main InvoicePe use karta hun GST billing ke liye — bilkul free aur bahut aasaan! Mere referral code se signup karo aur 1 mahina free pao: ${codeText} 👉 https://invoicepe.co.in`;
                         window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}`, '_blank');
                       }}
                       className="w-full bg-orange-500 hover:bg-orange-650 active:scale-95 text-white py-3.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm uppercase tracking-widest"
@@ -5361,21 +5529,73 @@ CREATE TABLE invoice_items (
                             </div>
                           </div>
 
-                          {/* Suggested Inventory presets */}
+                          {/* Quick Add inventory button for typed custom items */}
+                          {item.name.trim() !== '' && (
+                            <div className="flex justify-end pt-1">
+                              {customPresets.some(p => p.name.toLowerCase() === item.name.trim().toLowerCase()) ? (
+                                <span className="text-[9px] text-emerald-600 font-extrabold flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 font-mono">
+                                  <Check className="w-3 h-3 stroke-[3]" /> Saved in Inventory (Preset)
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => saveToCustomPresets(item.name, item.price)}
+                                  className="text-[9px] text-orange-600 hover:text-orange-700 font-extrabold flex items-center gap-1 bg-orange-50 hover:bg-orange-100/70 px-2.5 py-1 rounded-lg transition-all border border-orange-100/50 shadow-xs cursor-pointer select-none"
+                                >
+                                  <Plus className="w-3 h-3 stroke-[3]" /> Save to Inventory (Quick Add)
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Suggested Inventory presets (including user custom presets) */}
                           {item.name === '' && (
-                            <div className="pt-1.5">
-                              <span className="text-[9px] text-neutral-400 block font-medium mb-1">Quick Select:</span>
-                              <div className="flex flex-wrap gap-1">
-                                {SUGGESTED_ITEMS.slice(0, 3).map((sug, sIdx) => (
-                                  <button
-                                    key={sIdx}
-                                    type="button"
-                                    onClick={() => applyPresetItem(idx, sug.name, sug.price)}
-                                    className="text-[9px] bg-white border border-neutral-200 hover:border-orange-300 text-neutral-600 hover:text-orange-600 px-1.5 py-0.5 rounded transition-all"
-                                  >
-                                    {sug.name.split(' ')[0]} (₹{sug.price})
-                                  </button>
-                                ))}
+                            <div className="pt-1.5 space-y-2 text-left">
+                              {/* Custom presets if any */}
+                              {customPresets.length > 0 && (
+                                <div className="space-y-1">
+                                  <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-widest block font-mono">My Saved Presets:</span>
+                                  <div className="flex flex-wrap gap-1 border-b border-indigo-50/50 pb-1.5 mb-1.5 animate-fade-in">
+                                    {customPresets.map((preset, pIdx) => (
+                                      <div 
+                                        key={pIdx} 
+                                        className="inline-flex items-center bg-indigo-55/10 border border-indigo-100/55 rounded-lg overflow-hidden transition-all text-xs"
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={() => applyPresetItem(idx, preset.name, preset.price)}
+                                          className="text-[9px] text-indigo-700 font-extrabold px-2 py-1 hover:bg-indigo-100/20 transition-colors cursor-pointer font-sans"
+                                        >
+                                          {preset.name} (₹{preset.price})
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteCustomPreset(preset.name)}
+                                          className="text-[9px] text-indigo-400 hover:text-red-650 px-1.5 py-1 hover:bg-red-50/50 transition-colors border-l border-indigo-100/30 cursor-pointer align-middle flex items-center justify-center"
+                                          title="Remove Preset"
+                                        >
+                                          <X className="w-2.5 h-2.5" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div>
+                                <span className="text-[9px] text-neutral-400 block font-bold uppercase tracking-wider mb-1">Quick Select:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {SUGGESTED_ITEMS.slice(0, 3).map((sug, sIdx) => (
+                                    <button
+                                      key={sIdx}
+                                      type="button"
+                                      onClick={() => applyPresetItem(idx, sug.name, sug.price)}
+                                      className="text-[9px] bg-white border border-neutral-200 hover:border-orange-300 text-neutral-600 hover:text-orange-600 px-1.5 py-0.5 rounded transition-all cursor-pointer font-medium"
+                                    >
+                                      {sug.name.split(' ')[0]} (₹{sug.price})
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           )}
@@ -5879,139 +6099,178 @@ CREATE TABLE invoice_items (
                   </div>
 
                   {/* Two Plans Layout Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    
-                    {/* Plan 1 — Pro ₹149/month */}
-                    <div className="bg-gradient-to-br from-indigo-50/20 via-white to-orange-50/10 p-5 rounded-3xl border border-orange-200 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
-                      {/* Top Accent Ribbon */}
-                      <div className="absolute top-0 right-0 bg-orange-500 text-white font-extrabold text-[8px] tracking-widest uppercase px-3.5 py-1 rounded-bl-2xl border-l border-b border-orange-200">
-                        POPULAR
-                      </div>
- 
-                      <div className="space-y-3">
-                        {/* Plan Header */}
-                        <div>
-                          <p className="text-[9px] text-orange-600 font-extrabold uppercase tracking-widest mb-0.5 font-mono">Best Value</p>
-                          <h4 className="text-lg font-black text-slate-900 flex items-baseline gap-1.5">
-                            <span>Pro Plan</span>
-                            <span className="text-orange-600 text-xl">₹149<span className="text-[10px] text-slate-400 font-bold">/mo</span></span>
-                          </h4>
-                          <p className="text-[10px] text-slate-400 font-medium">Perfect for growing independent stores</p>
+                  {(() => {
+                    const baseProPrice = 99;
+                    const baseBusinessPrice = 249;
+
+                    return (
+                      <>
+                        {/* Referral Code Coupon Input Section */}
+                        <div className="bg-slate-50 p-4 rounded-3xl border border-orange-100 space-y-2 mt-1 mb-2">
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block font-sans">
+                            🏷️ HAVE A REFERRAL CODE? / REFERRAL CODE लागू करें
+                          </span>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={upgradeReferralCode}
+                              onChange={(e) => setUpgradeReferralCode(e.target.value.trim().toUpperCase())}
+                              disabled={!!appliedReferral}
+                              placeholder="E.G. RAMESH20"
+                              className="flex-1 text-xs px-3 py-2.5 bg-white border border-slate-205 rounded-xl focus:border-orange-500 focus:outline-none font-bold uppercase font-mono placeholder:normal-case placeholder:font-sans disabled:bg-slate-100 disabled:text-slate-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleApplyUpgradeReferral}
+                              disabled={!!appliedReferral}
+                              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs active:scale-95 transition-all select-none cursor-pointer disabled:bg-slate-150 disabled:text-slate-400"
+                            >
+                              {appliedReferral ? 'Applied ✓' : 'Apply'}
+                            </button>
+                          </div>
+                          {appliedReferral && (
+                            <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 animate-fadeIn">
+                              🎉 Coupon "{appliedReferral}" applied successfully! 1 Month of Pro Plan has been activated on your account for FREE.
+                            </p>
+                          )}
                         </div>
- 
-                        {/* Feature List */}
-                        <ul className="space-y-2 text-xs text-slate-600">
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                            <span className="font-semibold text-slate-700">Unlimited invoices</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                            <span className="font-semibold text-slate-700">Voice Invoice entry (Unlocked)</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                            <span>PDF Exports & WhatsApp shares</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                            <span>UPI QR Generation</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                            <span className="font-semibold text-slate-700">GST Sales Reports (Unlocked)</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                            <span>1 staff login session</span>
-                          </li>
-                        </ul>
-                      </div>
- 
-                      {/* WhatsApp CTA */}
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const userEmail = user?.email || 'N/A';
-                            const customMessage = `Namaste! Main InvoicePe Pro ₹149/month lena chahta hun. Mera email: ${userEmail} 🙏`;
-                            const url = `https://api.whatsapp.com/send?phone=919828488365&text=${encodeURIComponent(customMessage)}`;
-                            window.open(url, '_blank', 'noopener,noreferrer');
-                          }}
-                          className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white py-3 rounded-2xl font-black text-[10px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-mono"
-                        >
-                          <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                            <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.4 4.8 1.4 5.4 0 9.8-4.4 9.8-9.8 0-2.6-1-5-2.9-6.9-1.9-1.9-4.3-2.9-6.9-2.9-5.4 0-9.8 4.4-9.8 9.8 0 1.9.5 3.6 1.4 5.1L2.2 19.8l3.9-1c.4.3.7.6 1 .8zm11.5-6.7c-.3-.2-1.7-1-2-.1-.3-.1-.5-.2-.7-.2-.2 0-.4.1-.7.4-.3.3-.9.9-.9 1.1s-.2.3-.5.1c-.3-.2-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.3-.3-.1-.5.1-.7.2-.1.3-.4.5-.6.2-.2.2-.3.3-.5.1-.2 0-.4-.1-.5-.1-.2-.7-1.7-1-2.4-.3-.7-.6-.6-.8-.6-.2 0-.5-.1-.7-.1-.3 0-.7.1-1 .5-.4.4-1.4 1.4-1.4 3.4 0 2 1.4 3.9 1.6 4.2.2.3 2.9 4.4 7 6.2 1 .4 1.8.7 2.4.9 1 .3 1.9.3 2.6.2.8-.1 2.3-1 2.7-1.9.4-.9.4-1.7.3-1.9-.1-.3-.4-.5-.7-.6z"/>
-                          </svg>
-                          <span>Pro ke liye WhatsApp karein</span>
-                        </button>
-                      </div>
-                    </div>
- 
-                    {/* Plan 2 — Business ₹399/month */}
-                    <div className="bg-gradient-to-br from-indigo-50/40 via-white to-amber-50/10 p-5 rounded-3xl border border-indigo-200 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
-                      {/* Top Accent Ribbon */}
-                      <div className="absolute top-0 right-0 bg-indigo-600 text-white font-extrabold text-[8px] tracking-widest uppercase px-3.5 py-1 rounded-bl-2xl border-l border-b border-indigo-200">
-                        COMPLETE SUITE
-                      </div>
- 
-                      <div className="space-y-3">
-                        {/* Plan Header */}
-                        <div>
-                          <p className="text-[9px] text-indigo-600 font-extrabold uppercase tracking-widest mb-0.5 font-mono font-black">All Features</p>
-                          <h4 className="text-lg font-black text-slate-900 flex items-baseline gap-1.5">
-                            <span>Business</span>
-                            <span className="text-indigo-600 text-xl">₹399<span className="text-[10px] text-slate-400 font-bold">/mo</span></span>
-                          </h4>
-                          <p className="text-[10px] text-slate-400 font-medium">Enterprise multi-store accounting node</p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          
+                          {/* Plan 1 — Pro */}
+                          <div className="bg-gradient-to-br from-indigo-50/20 via-white to-orange-50/10 p-5 rounded-3xl border border-orange-200 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
+                            {/* Top Accent Ribbon */}
+                            <div className="absolute top-0 right-0 bg-orange-500 text-white font-extrabold text-[8px] tracking-widest uppercase px-3.5 py-1 rounded-bl-2xl border-l border-b border-orange-200">
+                              POPULAR
+                            </div>
+       
+                            <div className="space-y-3">
+                              {/* Plan Header */}
+                              <div>
+                                <p className="text-[9px] text-orange-600 font-extrabold uppercase tracking-widest mb-0.5 font-mono">Best Value</p>
+                                <h4 className="text-lg font-black text-slate-900 flex items-baseline gap-1.5">
+                                  <span>Pro Plan</span>
+                                  <span className="text-orange-600 text-xl font-black">₹{baseProPrice}<span className="text-[10px] text-slate-400 font-bold">/mo</span></span>
+                                </h4>
+                                <p className="text-[10px] text-slate-400 font-medium">Perfect for growing independent stores</p>
+                              </div>
+       
+                              {/* Feature List */}
+                              <ul className="space-y-2 text-xs text-slate-600">
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
+                                  <span className="font-semibold text-slate-700">Unlimited invoices</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
+                                  <span className="font-semibold text-slate-700">Voice Invoice entry (Unlocked)</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
+                                  <span>PDF Exports & WhatsApp shares</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
+                                  <span>UPI QR Generation</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
+                                  <span className="font-semibold text-slate-700">GST Sales Reports (Unlocked)</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
+                                  <span>1 staff login session</span>
+                                </li>
+                              </ul>
+                            </div>
+       
+                            {/* WhatsApp CTA */}
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const userEmail = user?.email || 'N/A';
+                                  const customMessage = `Namaste! Main InvoicePe Pro ₹${baseProPrice}/month lena chahta hun. Mera email: ${userEmail} 🙏`;
+                                  const url = `https://api.whatsapp.com/send?phone=919828488365&text=${encodeURIComponent(customMessage)}`;
+                                  window.open(url, '_blank', 'noopener,noreferrer');
+                                }}
+                                className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white py-3 rounded-2xl font-black text-[10px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-mono"
+                              >
+                                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.4 4.8 1.4 5.4 0 9.8-4.4 9.8-9.8 0-2.6-1-5-2.9-6.9-1.9-1.9-4.3-2.9-6.9-2.9-5.4 0-9.8 4.4-9.8 9.8 0 1.9.5 3.6 1.4 5.1L2.2 19.8l3.9-1c.4.3.7.6 1 .8zm11.5-6.7c-.3-.2-1.7-1-2-.1-.3-.1-.5-.2-.7-.2-.2 0-.4.1-.7.4-.3.3-.9.9-.9 1.1s-.2.3-.5.1c-.3-.2-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.3-.3-.1-.5.1-.7.2-.1.3-.4.5-.6.2-.2.2-.3.3-.5.1-.2 0-.4-.1-.5-.1-.2-.7-1.7-1-2.4-.3-.7-.6-.6-.8-.6-.2 0-.5-.1-.7-.1-.3 0-.7.1-1 .5-.4.4-1.4 1.4-1.4 3.4 0 2 1.4 3.9 1.6 4.2.2.3 2.9 4.4 7 6.2 1 .4 1.8.7 2.4.9 1 .3 1.9.3 2.6.2.8-.1 2.3-1 2.7-1.9.4-.9.4-1.7.3-1.9-.1-.3-.4-.5-.7-.6z"/>
+                                </svg>
+                                <span>Pro ke liye WhatsApp karein</span>
+                              </button>
+                            </div>
+                          </div>
+       
+                          {/* Plan 2 — Business */}
+                          <div className="bg-gradient-to-br from-indigo-50/40 via-white to-amber-50/10 p-5 rounded-3xl border border-indigo-200 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
+                            {/* Top Accent Ribbon */}
+                            <div className="absolute top-0 right-0 bg-indigo-600 text-white font-extrabold text-[8px] tracking-widest uppercase px-3.5 py-1 rounded-bl-2xl border-l border-b border-indigo-200">
+                              COMPLETE SUITE
+                            </div>
+       
+                            <div className="space-y-3">
+                              {/* Plan Header */}
+                              <div>
+                                <p className="text-[9px] text-indigo-600 font-extrabold uppercase tracking-widest mb-0.5 font-mono font-black">All Features</p>
+                                <h4 className="text-lg font-black text-slate-900 flex items-baseline gap-1.5">
+                                  <span>Business</span>
+                                  <span className="text-indigo-600 text-xl font-black">₹{baseBusinessPrice}<span className="text-[10px] text-slate-400 font-bold">/mo</span></span>
+                                </h4>
+                                <p className="text-[10px] text-slate-450 font-medium">Enterprise multi-store accounting node</p>
+                              </div>
+       
+                              {/* Feature List */}
+                              <ul className="space-y-2 text-xs text-slate-600">
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
+                                  <span className="font-semibold text-slate-800">Everything in Pro</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
+                                  <span>3 staff member logins</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
+                                  <span className="font-semibold text-indigo-800">Priority human support</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
+                                  <span>Upload custom business logo</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
+                                  <span>Manage multiple shop profiles</span>
+                                </li>
+                              </ul>
+                            </div>
+       
+                            {/* WhatsApp CTA */}
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const userEmail = user?.email || 'N/A';
+                                  const customMessage = `Namaste! Main InvoicePe Business ₹${baseBusinessPrice}/month lena chahta hun. Mera email: ${userEmail} 🙏`;
+                                  const url = `https://api.whatsapp.com/send?phone=919828488365&text=${encodeURIComponent(customMessage)}`;
+                                  window.open(url, '_blank', 'noopener,noreferrer');
+                                }}
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-[10px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-mono"
+                              >
+                                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.4 4.8 1.4 5.4 0 9.8-4.4 9.8-9.8 0-2.6-1-5-2.9-6.9-1.9-1.9-4.3-2.9-6.9-2.9-5.4 0-9.8 4.4-9.8 9.8 0 1.9.5 3.6 1.4 5.1L2.2 19.8l3.9-1c.4.3.7.6 1 .8zm11.5-6.7c-.3-.2-1.7-1-2-.1-.3-.1-.5-.2-.7-.2-.2 0-.4.1-.7.4-.3.3-.9.9-.9 1.1s-.2.3-.5.1c-.3-.2-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.3-.3-.1-.5.1-.7.2-.1.3-.4.5-.6.2-.2.2-.3.3-.5.1-.2 0-.4-.1-.5-.1-.2-.7-1.7-1-2.4-.3-.7-.6-.6-.8-.6-.2 0-.5-.1-.7-.1-.3 0-.7.1-1 .5-.4.4-1.4 1.4-1.4 3.4 0 2 1.4 3.9 1.6 4.2.2.3 2.9 4.4 7 6.2 1 .4 1.8.7 2.4.9 1 .3 1.9.3 2.6.2.8-.1 2.3-1 2.7-1.9.4-.9.4-1.7.3-1.9-.1-.3-.4-.5-.7-.6z"/>
+                                </svg>
+                                <span>Business ke liye WhatsApp karein</span>
+                              </button>
+                            </div>
+                          </div>
+
                         </div>
- 
-                        {/* Feature List */}
-                        <ul className="space-y-2 text-xs text-slate-600">
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                            <span className="font-semibold text-slate-800">Everything in Pro</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                            <span>3 staff member logins</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                            <span className="font-semibold text-indigo-800">Priority human support</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                            <span>Upload custom business logo</span>
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                            <span>Manage multiple shop profiles</span>
-                          </li>
-                        </ul>
-                      </div>
- 
-                      {/* WhatsApp CTA */}
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const userEmail = user?.email || 'N/A';
-                            const customMessage = `Namaste! Main InvoicePe Business ₹399/month lena chahta hun. Mera email: ${userEmail} 🙏`;
-                            const url = `https://api.whatsapp.com/send?phone=919828488365&text=${encodeURIComponent(customMessage)}`;
-                            window.open(url, '_blank', 'noopener,noreferrer');
-                          }}
-                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-[10px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-mono"
-                        >
-                          <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                            <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.4 4.8 1.4 5.4 0 9.8-4.4 9.8-9.8 0-2.6-1-5-2.9-6.9-1.9-1.9-4.3-2.9-6.9-2.9-5.4 0-9.8 4.4-9.8 9.8 0 1.9.5 3.6 1.4 5.1L2.2 19.8l3.9-1c.4.3.7.6 1 .8zm11.5-6.7c-.3-.2-1.7-1-2-.1-.3-.1-.5-.2-.7-.2-.2 0-.4.1-.7.4-.3.3-.9.9-.9 1.1s-.2.3-.5.1c-.3-.2-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.3-.3-.1-.5.1-.7.2-.1.3-.4.5-.6.2-.2.2-.3.3-.5.1-.2 0-.4-.1-.5-.1-.2-.7-1.7-1-2.4-.3-.7-.6-.6-.8-.6-.2 0-.5-.1-.7-.1-.3 0-.7.1-1 .5-.4.4-1.4 1.4-1.4 3.4 0 2 1.4 3.9 1.6 4.2.2.3 2.9 4.4 7 6.2 1 .4 1.8.7 2.4.9 1 .3 1.9.3 2.6.2.8-.1 2.3-1 2.7-1.9.4-.9.4-1.7.3-1.9-.1-.3-.4-.5-.7-.6z"/>
-                          </svg>
-                          <span>Business ke liye WhatsApp karein</span>
-                        </button>
-                      </div>
-                    </div>
- 
-                  </div>
+                      </>
+                    );
+                  })()}
 
                   {/* Close / Dismiss link anchor */}
                   <div className="pt-2 text-center">
