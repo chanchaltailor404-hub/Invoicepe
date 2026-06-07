@@ -458,7 +458,7 @@ export default function App() {
     });
   }, [adminProfiles, adminSearch]);
 
-  // Check if user is currently Pro
+  // Check if user is currently Pro or has premium trial access (first 30 invoices on free plan)
   const isPro = useMemo(() => {
     if (!user) {
       return false; // Absolutely no Pro features if not logged in
@@ -466,21 +466,22 @@ export default function App() {
     
     console.log('DEBUG [isPro evaluation]: pro_until =', proUntil, 'User Plan =', userPlan);
     const planNormalized = (userPlan || '').toLowerCase().trim();
-    if (planNormalized !== 'pro' && planNormalized !== 'business') {
-      return false; // Free plan or unknown plans get no Pro access
+    if (planNormalized === 'pro' || planNormalized === 'business') {
+      if (proUntil) {
+        const expiryDate = new Date(proUntil);
+        const today = new Date();
+        if (expiryDate <= today) {
+          console.warn('DEBUG [isPro evaluation]: Subscription expired at:', expiryDate);
+          // Revert to free plan on expiration
+          return invoices.length < 30;
+        }
+      }
+      return true;
     }
 
-    if (proUntil) {
-      const expiryDate = new Date(proUntil);
-      const today = new Date();
-      if (expiryDate <= today) {
-        console.warn('DEBUG [isPro evaluation]: Subscription expired at:', expiryDate);
-        return false;
-      }
-    }
-    
-    return true;
-  }, [user, proUntil, userPlan]);
+    // Free plan users have premium features enabled ONLY within their first 30 invoices
+    return invoices.length < 30;
+  }, [user, proUntil, userPlan, invoices.length]);
 
   // Calculated metrics
   const metrics = useMemo(() => {
@@ -1841,9 +1842,9 @@ export default function App() {
       return;
     }
 
-    if (!isPro && invoices.length >= 50) {
+    if (!isPro && invoices.length >= 30) {
       setShowLimitPopup(true);
-      showToast('Free plan limit (50 invoices) exceeded. Please upgrade to Pro or Business! 🚀', 'info');
+      showToast('Free plan limit reached. Upgrade to continue.', 'info');
       return;
     }
 
@@ -2393,9 +2394,9 @@ Powered by InvoicePe 🧾`;
 
   // Start Voice Recognition Recording
   const startVoiceInvoice = () => {
-    if (!isPro && invoices.length >= 50) {
+    if (!isPro && invoices.length >= 30) {
       setShowLimitPopup(true);
-      showToast("Free plan limit (50 invoices) exceeded. Please upgrade to Pro or Business! 🚀", "info");
+      showToast('Free plan limit reached. Upgrade to continue.', 'info');
       return;
     }
 
@@ -3870,7 +3871,7 @@ CREATE TABLE invoice_items (
                 <div className="flex items-center gap-2">
                   <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${isPro ? 'bg-emerald-500' : 'bg-orange-500'}`} />
                   <span className="text-xs font-black text-slate-800 uppercase tracking-wider font-mono">
-                    {isPro ? 'Invoice Usage (Unlimited)' : 'Invoice Usage (Limit: 50)'}
+                    {isPro ? 'Invoice Usage (Unlimited)' : 'Invoice Usage (Limit: 30)'}
                   </span>
                 </div>
                 {!isPro ? (
@@ -3884,16 +3885,16 @@ CREATE TABLE invoice_items (
                 <div className="relative pt-1">
                   <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-slate-100">
                     <div 
-                      style={{ width: isPro ? '100%' : `${Math.min((invoices.length / 50) * 100, 100)}%` }} 
+                      style={{ width: isPro ? '100%' : `${Math.min((invoices.length / 30) * 100, 100)}%` }} 
                       className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center transition-all duration-500 rounded-full ${
-                        isPro ? 'bg-gradient-to-r from-emerald-500 to-indigo-500' : invoices.length >= 45 ? 'bg-red-500 animate-pulse' : invoices.length >= 35 ? 'bg-orange-500' : 'bg-amber-500'
+                        isPro ? 'bg-gradient-to-r from-emerald-500 to-indigo-500' : invoices.length >= 27 ? 'bg-red-500 animate-pulse' : invoices.length >= 20 ? 'bg-orange-500' : 'bg-amber-500'
                       }`}
                     />
                   </div>
                 </div>
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 font-mono">
                   <span>{invoices.length} Bills Created</span>
-                  <span>{isPro ? 'Unlimited Invoices Unlocked' : '50 Bills Limit'}</span>
+                  <span>{isPro ? 'Unlimited Invoices Unlocked' : '30 Bills Limit'}</span>
                 </div>
               </div>
 
@@ -4597,8 +4598,9 @@ CREATE TABLE invoice_items (
             type="button"
             id="create-invoice-button"
             onClick={() => {
-              if (!isPro && invoices.length >= 50) {
+              if (!isPro && invoices.length >= 30) {
                 setShowLimitPopup(true);
+                showToast('Free plan limit reached. Upgrade to continue.', 'info');
               } else {
                 setIsFormOpen(true);
               }
@@ -4694,7 +4696,7 @@ CREATE TABLE invoice_items (
                             <span>Free Plan</span>
                           </span>
                           <span className="text-[10px] text-slate-500 font-bold ml-3.5">
-                            Usage: {invoices.length} of 50 bills issued
+                            Usage: {invoices.length} of 30 bills issued
                           </span>
                         </p>
                       )}
