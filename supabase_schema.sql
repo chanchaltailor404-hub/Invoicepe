@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS customers (
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     phone TEXT NOT NULL DEFAULT 'No Mobile',
+    email TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -78,6 +79,8 @@ CREATE TABLE IF NOT EXISTS shop_profiles (
     referral_code TEXT UNIQUE,
     pro_expires_at TIMESTAMPTZ,
     pro_until TIMESTAMPTZ,
+    plan TEXT NOT NULL DEFAULT 'free',
+    email TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -105,6 +108,11 @@ ALTER TABLE invoices ADD COLUMN IF NOT EXISTS gst_type TEXT NOT NULL DEFAULT 'ex
 ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
 ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS pro_expires_at TIMESTAMPTZ;
 ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS pro_until TIMESTAMPTZ;
+ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS email TEXT;
+
+-- Make sure email column exists in customers table
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;
 
 -- =========================================================================
 -- 3. Row Level Security & Policies (Enables secure full user isolation)
@@ -176,10 +184,10 @@ DROP POLICY IF EXISTS "Users can insert their own shop profile" ON shop_profiles
 DROP POLICY IF EXISTS "Users can update their own shop profile" ON shop_profiles;
 DROP POLICY IF EXISTS "Users can delete their own shop profile" ON shop_profiles;
 
-CREATE POLICY "Users can select their own shop profile" ON shop_profiles FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can select their own shop profile" ON shop_profiles FOR SELECT USING (auth.uid() = user_id OR (auth.jwt() ->> 'email' = 'chanchaltailor404@gmail.com'));
 CREATE POLICY "Users can insert their own shop profile" ON shop_profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update their own shop profile" ON shop_profiles FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete their own shop profile" ON shop_profiles FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "Users can update their own shop profile" ON shop_profiles FOR UPDATE USING (auth.uid() = user_id OR (auth.jwt() ->> 'email' = 'chanchaltailor404@gmail.com'));
+CREATE POLICY "Users can delete their own shop profile" ON shop_profiles FOR DELETE USING (auth.uid() = user_id OR (auth.jwt() ->> 'email' = 'chanchaltailor404@gmail.com'));
 
 -- Referrals Policies
 DROP POLICY IF EXISTS "Users can select referrals they made" ON referrals;
@@ -187,6 +195,59 @@ DROP POLICY IF EXISTS "Users can insert referrals they received or made" ON refe
 
 CREATE POLICY "Users can select referrals they made" ON referrals FOR SELECT USING (auth.uid() = referrer_user_id);
 CREATE POLICY "Users can insert referrals they received or made" ON referrals FOR INSERT WITH CHECK (auth.uid() = referred_user_id OR auth.uid() = referrer_user_id);
+
+
+-- =========================================================================
+-- 4. Admin RPC to Fetch All Registered Users with Auth Emails
+-- =========================================================================
+
+CREATE OR REPLACE FUNCTION get_all_users_with_emails()
+RETURNS TABLE (
+  id UUID,
+  user_id UUID,
+  shop_name TEXT,
+  owner_name TEXT,
+  phone TEXT,
+  address TEXT,
+  upi_id TEXT,
+  gstin TEXT,
+  referral_code TEXT,
+  pro_expires_at TIMESTAMPTZ,
+  pro_until TIMESTAMPTZ,
+  plan TEXT,
+  email TEXT,
+  created_at TIMESTAMPTZ
+) 
+SECURITY DEFINER
+AS $$
+BEGIN
+  -- Restrict execution to the admin user only
+  IF auth.jwt() ->> 'email' = 'chanchaltailor404@gmail.com' THEN
+    RETURN QUERY
+    SELECT 
+      sp.id,
+      u.id as user_id,
+      COALESCE(sp.shop_name, u.raw_user_meta_data ->> 'shop_name', 'My General Store') as shop_name,
+      COALESCE(sp.owner_name, u.raw_user_meta_data ->> 'owner_name', 'Merchant') as owner_name,
+      COALESCE(sp.phone, u.raw_user_meta_data ->> 'phone', 'No Mobile') as phone,
+      sp.address,
+      COALESCE(sp.upi_id, 'shopname@upi') as upi_id,
+      sp.gstin,
+      sp.referral_code,
+      sp.pro_expires_at,
+      sp.pro_until,
+      COALESCE(sp.plan, 'free') as plan,
+      COALESCE(u.email, sp.email) as email,
+      u.created_at
+    FROM auth.users u
+    LEFT JOIN shop_profiles sp ON u.id = sp.user_id
+    ORDER BY u.created_at DESC;
+  ELSE
+    RAISE EXCEPTION 'Access Denied: Non-admin authorization attempt.';
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
 
 
 

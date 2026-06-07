@@ -31,7 +31,10 @@ import {
   MicOff,
   Gift,
   Sun,
-  Moon
+  Moon,
+  Lock,
+  Key,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -84,6 +87,7 @@ export default function App() {
   const [freeMonths, setFreeMonths] = useState(0);
   const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
   const [proUntil, setProUntil] = useState<string | null>(() => localStorage.getItem('invoicepe_pro_until') || null);
+  const [userPlan, setUserPlan] = useState<string>(() => localStorage.getItem('invoicepe_plan') || 'free');
 
   // Dark mode state control (Disabled: client requested pure light mode)
   const darkMode = false;
@@ -224,13 +228,224 @@ export default function App() {
   // Quick Receipt preview state
   const [selectedReceipt, setSelectedReceipt] = useState<Invoice | null>(null);
 
+  // Routing and Admin Panel States
+  const [currentPath, setCurrentPath] = useState(() => {
+    if (window.location.hash.startsWith('#/')) {
+      return window.location.hash.substring(1);
+    }
+    if (window.location.hash.startsWith('#')) {
+      const hashVal = window.location.hash.substring(1);
+      if (hashVal.startsWith('/') || hashVal.includes('-secret')) {
+        return hashVal.startsWith('/') ? hashVal : '/' + hashVal;
+      }
+    }
+    return window.location.pathname;
+  });
+
+  // Password Reset / Recovery States
+  const [resetEmail, setResetEmail] = useState('chanchaltailor404@gmail.com');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [pastedResetUrl, setPastedResetUrl] = useState('');
+  const [pastedResetError, setPastedResetError] = useState<string | null>(null);
+
+  // Active Settings Password Change States
+  const [settingsNewPassword, setSettingsNewPassword] = useState('');
+  const [settingsConfirmPassword, setSettingsConfirmPassword] = useState('');
+  const [settingsPassSubmitting, setSettingsPassSubmitting] = useState(false);
+  const [settingsPassError, setSettingsPassError] = useState<string | null>(null);
+  const [settingsPassSuccess, setSettingsPassSuccess] = useState<string | null>(null);
+  const [adminProfiles, setAdminProfiles] = useState<any[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminSearch, setAdminSearch] = useState('');
+  const [adminMutatingId, setAdminMutatingId] = useState<string | null>(null);
+  const [adminRpcError, setAdminRpcError] = useState<string | null>(null);
+
+  // Fetch All Profiles for Master Admin Dashboard
+  const fetchAllAdminProfiles = async () => {
+    if (!user || user.email !== 'chanchaltailor404@gmail.com') return;
+    setAdminLoading(true);
+    setAdminRpcError(null);
+    try {
+      console.log('Admin loading all registered users directly from shop_profiles...');
+      const { data, error } = await supabase
+        .from('shop_profiles')
+        .select('*');
+
+      if (error) {
+        console.error('Error loading admin profiles:', error);
+        setAdminRpcError(error.message);
+        showToast('E-Ledger sync error inside admin panel', 'info');
+      } else if (data) {
+        console.log('Direct fetch from shop_profiles succeeded with', data.length, 'records');
+        setAdminProfiles(data);
+      }
+    } catch (err: any) {
+      console.error('Exception loading admin profiles:', err);
+      setAdminRpcError(err?.message || String(err));
+      showToast('Exception loading admin profiles', 'info');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const isAdmin = user?.email === 'chanchaltailor404@gmail.com';
+    const isAdminRoute = currentPath === '/admin-invoicepe-secret';
+    if (isAdmin && isAdminRoute) {
+      fetchAllAdminProfiles();
+    }
+  }, [user, currentPath]);
+
+  useEffect(() => {
+    const checkHashForRecovery = () => {
+      const hash = window.location.hash;
+      if (hash && (hash.includes('type=recovery') || hash.includes('access_token=') || hash.includes('error_description='))) {
+        setIsResettingPassword(true);
+        setCurrentPath('/forgot-password-secret');
+        // Clear settings window if visible
+        try {
+          setIsSettingsOpen(false);
+        } catch (_) {}
+      }
+    };
+    checkHashForRecovery();
+    window.addEventListener('hashchange', checkHashForRecovery);
+    return () => window.removeEventListener('hashchange', checkHashForRecovery);
+  }, []);
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      if (window.location.hash.startsWith('#/')) {
+        setCurrentPath(window.location.hash.substring(1));
+      } else if (window.location.hash.startsWith('#')) {
+        const hashVal = window.location.hash.substring(1);
+        if (hashVal.startsWith('/') || hashVal.includes('-secret')) {
+          setCurrentPath(hashVal.startsWith('/') ? hashVal : '/' + hashVal);
+        }
+      } else {
+        setCurrentPath(window.location.pathname);
+      }
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    
+    // Fallback sync
+    const timer = setInterval(handleLocationChange, 1050);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+      clearInterval(timer);
+    };
+  }, []);
+
+  const handleUpgradeToPro = async (profile: any) => {
+    setAdminMutatingId(profile.user_id + '-pro');
+    try {
+      const today = new Date();
+      const expiry = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+      
+      const { error } = await supabase
+        .from('shop_profiles')
+        .update({ 
+          pro_until: expiry.toISOString(),
+          pro_expires_at: expiry.toISOString(),
+          plan: 'pro'
+        })
+        .eq('user_id', profile.user_id);
+
+      if (error) {
+        console.error('Pro upgrade error:', error);
+        showToast('DB upgrade failed: ' + error.message, 'info');
+      } else {
+        showToast(`User successfully upgraded to PRO!`, 'success');
+        setAdminProfiles(prev => 
+          prev.map(p => p.user_id === profile.user_id ? { ...p, pro_until: expiry.toISOString(), pro_expires_at: expiry.toISOString(), plan: 'pro' } : p)
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error during upgrade processing', 'info');
+    } finally {
+      setAdminMutatingId(null);
+    }
+  };
+
+  const handleUpgradeToBusiness = async (profile: any) => {
+    setAdminMutatingId(profile.user_id + '-business');
+    try {
+      const today = new Date();
+      const expiry = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+      
+      const { error } = await supabase
+        .from('shop_profiles')
+        .update({ 
+          pro_until: expiry.toISOString(),
+          pro_expires_at: expiry.toISOString(),
+          plan: 'business'
+        })
+        .eq('user_id', profile.user_id);
+
+      if (error) {
+        console.error('Business upgrade error:', error);
+        showToast('DB upgrade failed: ' + error.message, 'info');
+      } else {
+        showToast(`User successfully upgraded to BUSINESS!`, 'success');
+        setAdminProfiles(prev => 
+          prev.map(p => p.user_id === profile.user_id ? { ...p, pro_until: expiry.toISOString(), pro_expires_at: expiry.toISOString(), plan: 'business' } : p)
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error during upgrade processing', 'info');
+    } finally {
+      setAdminMutatingId(null);
+    }
+  };
+
+  const adminStats = useMemo(() => {
+    let total = adminProfiles.length;
+    let pro = 0;
+    let business = 0;
+    
+    adminProfiles.forEach(p => {
+      if (p.pro_until) {
+        const isNotExpired = new Date(p.pro_until) > new Date();
+        if (isNotExpired) {
+          if (p.plan === 'business') {
+            business++;
+          } else {
+            pro++;
+          }
+        }
+      }
+    });
+
+    return { total, pro, business };
+  }, [adminProfiles]);
+
+  const filteredAdminProfiles = useMemo(() => {
+    if (!adminSearch.trim()) return adminProfiles;
+    const query = adminSearch.toLowerCase().trim();
+    return adminProfiles.filter(p => {
+      const emailMatch = p.email && p.email.toLowerCase().includes(query);
+      return !!emailMatch;
+    });
+  }, [adminProfiles, adminSearch]);
+
   // Check if user is currently Pro
   const isPro = useMemo(() => {
+    console.log('DEBUG [isPro evaluation]: pro_until =', proUntil, 'User Plan =', userPlan);
     if (!proUntil) return false;
     const expiryDate = new Date(proUntil);
     const today = new Date();
-    return today < expiryDate;
-  }, [proUntil]);
+    const active = expiryDate > today;
+    console.log(`DEBUG [isPro evaluation]: Expiry = ${expiryDate.toISOString()}, Today = ${today.toISOString()}, Active = ${active}`);
+    return active;
+  }, [proUntil, userPlan]);
 
   // Calculated metrics
   const metrics = useMemo(() => {
@@ -354,7 +569,9 @@ export default function App() {
           address: currentUser.user_metadata?.address || '',
           upi_id: currentUser.user_metadata?.upi_id || '',
           gstin: currentUser.user_metadata?.gstin || '',
-          referral_code: generatedCode
+          referral_code: generatedCode,
+          email: currentUser.email,
+          plan: 'free'
         };
 
         const { data: insertedData, error: insertError } = await supabase
@@ -372,6 +589,20 @@ export default function App() {
 
       if (data) {
         console.log('Using shop profile data:', data);
+
+        // Auto-write user email back to shop_profile if missing
+        if (!data.email && currentUser.email) {
+          console.log('Writing missing user email to shop_profile:', currentUser.email);
+          try {
+            await supabase
+              .from('shop_profiles')
+              .update({ email: currentUser.email })
+              .eq('user_id', currentUser.id);
+            data.email = currentUser.email;
+          } catch (err) {
+            console.warn('Could not auto-write email to shop_profile column:', err);
+          }
+        }
         
         let loadedReferralCode = data.referral_code;
         if (!loadedReferralCode || loadedReferralCode === 'RAMESH20' || loadedReferralCode.trim() === '') {
@@ -412,6 +643,12 @@ export default function App() {
         setProExpiresAt(data.pro_expires_at || null);
         setProUntil(data.pro_until || null);
 
+        const loadedPlan = data.plan || 'free';
+        setUserPlan(loadedPlan);
+
+        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded pro_until from Supabase:', data.pro_until);
+        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded plan from Supabase:', loadedPlan);
+
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
         localStorage.setItem('invoicepe_upi_id', loadedUpi);
@@ -419,6 +656,7 @@ export default function App() {
         localStorage.setItem('invoicepe_owner_name', data.owner_name || '');
         localStorage.setItem('invoicepe_shop_phone', data.phone || '');
         localStorage.setItem('invoicepe_shop_address', data.address || '');
+        localStorage.setItem('invoicepe_plan', loadedPlan);
         if (data.referral_code) {
           localStorage.setItem('invoicepe_referral_code', data.referral_code);
         }
@@ -667,7 +905,9 @@ export default function App() {
         gstin: '',
         referral_code: generatedCode,
         pro_expires_at: proExpiry,
-        pro_until: proExpiry
+        pro_until: proExpiry,
+        email: newUser.email,
+        plan: referrerUserId ? 'pro' : 'free'
       };
 
       const { data: createdProfile, error: profileErr } = await supabase
@@ -891,7 +1131,8 @@ export default function App() {
             address: newAddress,
             upi_id: newUpi,
             gstin: newGstin,
-            referral_code: referralCode
+            referral_code: referralCode,
+            email: user.email
           }, { onConflict: 'user_id' });
 
         if (profileErr) {
@@ -922,6 +1163,41 @@ export default function App() {
     }
   };
 
+  // Change Password directly from settings panel
+  const handleChangePasswordInSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettingsPassError(null);
+    setSettingsPassSuccess(null);
+
+    if (settingsNewPassword !== settingsConfirmPassword) {
+      setSettingsPassError('Security locks do not match.');
+      return;
+    }
+
+    if (settingsNewPassword.length < 6) {
+      setSettingsPassError('Password must code 6 digits or more.');
+      return;
+    }
+
+    setSettingsPassSubmitting(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: settingsNewPassword });
+      if (error) {
+        setSettingsPassError(error.message);
+        showToast(error.message, 'info');
+      } else {
+        setSettingsPassSuccess('Password updated successfully in the Supabase Cloud!');
+        setSettingsNewPassword('');
+        setSettingsConfirmPassword('');
+        showToast('Password changed successfully!', 'success');
+      }
+    } catch (err: any) {
+      setSettingsPassError(err.message || 'Error occurred while updating password.');
+    } finally {
+      setSettingsPassSubmitting(false);
+    }
+  };
+
   // Load data from Supabase (filtered by user_id for isolation)
   const fetchInvoicesFromSupabase = async (showLoading = true, currentUser = user) => {
     if (!currentUser) {
@@ -945,7 +1221,8 @@ export default function App() {
         customers (
           id,
           name,
-          phone
+          phone,
+          email
         ),
         invoice_items (
           id,
@@ -962,8 +1239,14 @@ export default function App() {
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
 
-      if (queryResult.error && (queryResult.error.message.includes('gst_rate') || queryResult.error.message.includes('gst_type') || queryResult.error.code === '42703')) {
-        console.warn('⚠️ gst_rate or gst_type column does not exist yet on Supabase Invoices table; retrying without them...');
+      // Fallback 1: If customers.email column or GST rate/type columns do not exist
+      if (queryResult.error && (
+        queryResult.error.message.includes('email') ||
+        queryResult.error.message.includes('gst_rate') ||
+        queryResult.error.message.includes('gst_type') ||
+        queryResult.error.code === '42703'
+      )) {
+        console.warn('⚠️ Retrying query without missing customers.email or gst_rate/gst_type columns...');
         selectFields = `
           id,
           invoice_number,
@@ -1087,7 +1370,20 @@ export default function App() {
   // Auth flow and sessions loading effect
   useEffect(() => {
     // 1. Initial Session Get
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.warn('Session retrieval validation error, clearing state:', error);
+        // Clear corrupt state tokens from local storage
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('-auth-token')) {
+            localStorage.removeItem(key);
+          }
+        });
+        supabase.auth.signOut().catch(() => {});
+        setAuthLoading(false);
+        setIsLoading(false);
+        return;
+      }
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
       if (sessionUser) {
@@ -1123,8 +1419,16 @@ export default function App() {
         setAuthLoading(false);
         setIsLoading(false);
       }
-    }).catch(err => {
-      console.error('Error fetching session:', err);
+    }).catch(async (err) => {
+      console.error('Error fetching session, clearing auth cache:', err);
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('-auth-token')) {
+          localStorage.removeItem(key);
+        }
+      });
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {}
       setAuthLoading(false);
       setIsLoading(false);
     });
@@ -1224,9 +1528,19 @@ export default function App() {
               setCustomShopAddressInput(updatedProfile.address);
               localStorage.setItem('invoicepe_shop_address', updatedProfile.address);
             }
-            if (updatedProfile.pro_until) {
+            if (updatedProfile.pro_until !== undefined) {
+              console.log('DEBUG [realtime]: pro_until updated =', updatedProfile.pro_until);
               setProUntil(updatedProfile.pro_until);
-              localStorage.setItem('invoicepe_pro_until', updatedProfile.pro_until);
+              if (updatedProfile.pro_until) {
+                localStorage.setItem('invoicepe_pro_until', updatedProfile.pro_until);
+              } else {
+                localStorage.removeItem('invoicepe_pro_until');
+              }
+            }
+            if (updatedProfile.plan !== undefined) {
+              console.log('DEBUG [realtime]: plan updated =', updatedProfile.plan);
+              setUserPlan(updatedProfile.plan || 'free');
+              localStorage.setItem('invoicepe_plan', updatedProfile.plan || 'free');
             }
             if (updatedProfile.gstin) {
               setGstin(updatedProfile.gstin);
@@ -1350,18 +1664,17 @@ export default function App() {
     setIsLoading(true);
     try {
       const total = formItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
-      
       const custNameTrim = customerName.trim();
       const custPhoneTrim = customerPhone.trim() || 'No Mobile';
+      let customerId: string;
       
       // Get or create customer ID in Supabase belonging to this user
-      let customerId;
       const { data: existingCustomers, error: findError } = await supabase
         .from('customers')
         .select('id, name, phone')
         .eq('user_id', user.id)
         .ilike('name', custNameTrim);
-        
+         
       if (existingCustomers && existingCustomers.length > 0) {
         const existing = existingCustomers[0];
         customerId = existing.id;
@@ -2377,6 +2690,528 @@ Powered by InvoicePe 🧾`;
     );
   }
 
+  // Intercept Password Reset Route
+  if (currentPath === '/forgot-password-secret') {
+    const handleTriggerReset = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setResetSubmitting(true);
+      setResetMessage(null);
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+          redirectTo: window.location.origin + '/#forgot-password-secret'
+        });
+        if (error) {
+          setResetMessage({ text: error.message, type: 'error' });
+          showToast(error.message, 'info');
+        } else {
+          setResetMessage({ 
+            text: `A recovery link from Supabase has been sent to ${resetEmail}. Check your mailbox (or spam folder), click the link, and you will be returned here to save active new credentials.`, 
+            type: 'success' 
+          });
+          showToast('Reset email dispatched!', 'success');
+        }
+      } catch (err: any) {
+        setResetMessage({ text: err.message || 'Error requesting password reset', type: 'error' });
+      } finally {
+        setResetSubmitting(false);
+      }
+    };
+
+    const handleSaveNewPassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (newPassword !== confirmNewPassword) {
+        setResetMessage({ text: 'Security locks must match.', type: 'error' });
+        showToast('Passwords do not match', 'info');
+        return;
+      }
+      if (newPassword.length < 6) {
+        setResetMessage({ text: 'Password must code 6 digits or more.', type: 'error' });
+        showToast('Minimum 6 characters required', 'info');
+        return;
+      }
+
+      setResetSubmitting(true);
+      setResetMessage(null);
+      try {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) {
+          setResetMessage({ text: error.message, type: 'error' });
+          showToast(error.message, 'info');
+        } else {
+          setResetMessage({ text: 'Success! Your password was updated successfully in the Supabase Cloud. Redirecting...', type: 'success' });
+          showToast('Password updated permanently!', 'success');
+          setNewPassword('');
+          setConfirmNewPassword('');
+          setIsResettingPassword(false);
+          setPastedResetUrl('');
+          setTimeout(() => {
+            window.location.hash = '';
+            setCurrentPath('/');
+          }, 3000);
+        }
+      } catch (err: any) {
+        setResetMessage({ text: err.message || 'Error updating password', type: 'error' });
+      } finally {
+        setResetSubmitting(false);
+      }
+    };
+
+    const handleProcessPastedUrl = async (inputVal: string) => {
+      setPastedResetUrl(inputVal);
+      setPastedResetError(null);
+      if (!inputVal) return;
+
+      try {
+        let queryString = '';
+        if (inputVal.includes('#')) {
+          queryString = inputVal.split('#')[1];
+        } else if (inputVal.includes('?')) {
+          queryString = inputVal.split('?')[1];
+        } else {
+          queryString = inputVal;
+        }
+
+        const params = new URLSearchParams(queryString);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (!accessToken) {
+          setPastedResetError('Could not find access_token. Make sure to copy the ENTIRE address bar URL.');
+          return;
+        }
+
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || '',
+        });
+
+        if (error) {
+          setPastedResetError(`Supabase Session Error: ${error.message}`);
+        } else {
+          setIsResettingPassword(true);
+          setResetMessage({
+            text: '🎉 Session authorized with Supabase via pasted fragment! Create your new password below.',
+            type: 'success'
+          });
+          showToast('Session authorized successfully!', 'success');
+        }
+      } catch (err: any) {
+        setPastedResetError(err.message || 'Error parsing pasted URL details.');
+      }
+    };
+
+    return (
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
+          
+          {/* Top Status Header */}
+          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-3 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/30">
+            <span className="flex items-center gap-1.5 flex-row">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+              <span>ADMIN SECURE RECOVERY SYSTEM</span>
+            </span>
+            <button
+              onClick={() => {
+                window.location.hash = '';
+                setCurrentPath('/');
+              }}
+              className="px-2 py-0.5 bg-orange-100/50 hover:bg-orange-100 text-orange-950 font-sans text-[9px] uppercase font-black rounded transition-all cursor-pointer border-0"
+            >
+              Exit Gateway
+            </button>
+          </div>
+
+          {/* Body Content */}
+          <div className="flex-1 p-5 flex flex-col justify-start space-y-5 overflow-y-auto">
+            <div className="text-center space-y-2">
+              <div className="mx-auto w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-md">
+                🔒
+              </div>
+              <div>
+                <h1 className="text-lg font-display font-black text-slate-900 tracking-tight leading-none">
+                  Reset Password / पासवर्ड बदलें
+                </h1>
+                <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest mt-1">
+                  InvoicePe Simple Recovery Wizard
+                </p>
+              </div>
+            </div>
+
+            {resetMessage && (
+              <div className={`p-4 rounded-xl border text-xs font-bold leading-relaxed ${resetMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                {resetMessage.text}
+              </div>
+            )}
+
+            {!isResettingPassword ? (
+              // STEP 1 & 2 COMBINED FOR MAXIMUM Simplicity
+              <div className="space-y-5">
+                {/* Visual Step Tracker card */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm space-y-4">
+                  <h3 className="text-xs font-black text-slate-800 border-b border-slate-150 pb-2 uppercase tracking-wider">
+                    Easy 2-Step Recovery / 2 आसान चरण:
+                  </h3>
+                  
+                  {/* Step 1 */}
+                  <div className="space-y-1">
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5">1</span>
+                      <div>
+                        <h4 className="text-[11.5px] font-black text-slate-900">Request Email / ईमेल भेजें</h4>
+                        <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                          Enter email and press <strong>Send Link</strong>. You will get an email from Supabase.
+                          <br />
+                          अपना ईमेल लिखकर <strong>"Send Reset Link"</strong> बटन दबाएं। आपको ईमेल प्राप्त होगा।
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="space-y-1 border-t border-slate-100 pt-3">
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-5 h-5 rounded-full bg-amber-500 text-white font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5">2</span>
+                      <div>
+                        <h4 className="text-[11.5px] font-black text-slate-900">Copy & Paste Link / लिंक कॉपी-पेस्ट करें</h4>
+                        <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                          Click that email link. If it opens a broken <strong className="text-orange-600">localhost:3000</strong> page, <strong>don't worry!</strong> Just copy that entire address/URL from your web browser and paste it in the box below!
+                          <br />
+                          ईमेल लिंक खोलें। यदि "localhost" एरर आए, तो घबराएं नहीं! बस अपनी एड्रेस बार का पूरा लिंक कॉपी करें और नीचे पेस्ट करें।
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Submit Email Form */}
+                <form onSubmit={handleTriggerReset} className="space-y-3.5 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block mb-1">
+                      Your Registered Email / आपका ईमेल
+                    </label>
+                    <input
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      required
+                      placeholder="chanchaltailor404@gmail.com"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-850"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={resetSubmitting}
+                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+                  >
+                    {resetSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                        <span>Sending Link...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Send Reset Link (ईमेल भेजें)</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Paste URL Box */}
+                <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/60 space-y-2.5 shadow-sm">
+                  <h3 className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="text-sm">📥</span>
+                    <span>Paste Email Reset Link Here / लिंक यहाँ पेस्ट करें:</span>
+                  </h3>
+                  <input
+                    type="text"
+                    className="w-full text-[10.5px] px-3.5 py-3 bg-white border border-amber-200 rounded-xl focus:border-orange-550 focus:outline-none font-mono text-slate-800 placeholder:text-slate-400 border-dashed"
+                    placeholder="e.g. http://localhost:3000/#access_token=..."
+                    value={pastedResetUrl}
+                    onChange={(e) => handleProcessPastedUrl(e.target.value)}
+                  />
+                  {pastedResetError && (
+                    <p className="text-[9.5px] font-bold text-red-600 block bg-red-50 p-2 rounded-lg border border-red-100">❌ {pastedResetError}</p>
+                  )}
+                  <p className="text-[9px] text-amber-800/80 font-bold leading-normal">
+                    💡 Directly pasting the link you got via email (even if "localhost:3000" didn't load) unlocks your page instantly!
+                  </p>
+                </div>
+              </div>
+            ) : (
+              // STEP 3: Token verified, show password update boxes
+              <form onSubmit={handleSaveNewPassword} className="space-y-4">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] uppercase tracking-wider font-black animate-pulse flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>Reset Session Authorized / सेशन स्वीकृत</span>
+                </div>
+
+                <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">New Password (नया पासवर्ड)</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      placeholder="Minimum 6 characters"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Confirm New Password (पासवर्ड दोबारा लिखें)</label>
+                    <input
+                      type="password"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      placeholder="Minimum 6 characters"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={resetSubmitting}
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer"
+                >
+                  {resetSubmitting ? (
+                    <>
+                      <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                      <span>Rewriting password...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Save New Password (पासवर्ड सुरक्षित करें)</span>
+                      <CheckCircle2 className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+
+            <div className="text-center pt-1 pb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResettingPassword(!isResettingPassword);
+                  setResetMessage(null);
+                }}
+                className="text-[10px] font-black text-slate-400 hover:text-orange-500 tracking-wider uppercase bg-transparent border-0 cursor-pointer"
+              >
+                {!isResettingPassword ? "No email access but have the redirect code?" : "Go back to request reset email"}
+              </button>
+            </div>
+          </div>
+
+          {/* Footer lock and trust notation */}
+          <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest bg-slate-50">
+            <p>🔒 Security Protocol • SHA-256 Encryption</p>
+            <p>© 2026 InvoicePe Master Account Node</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Intercept Admin Panel Route
+  if (currentPath === '/admin-invoicepe-secret') {
+    if (!user) {
+       // Allow user verification flow below; do not block here
+    } else if (user.email !== 'chanchaltailor404@gmail.com') {
+      return (
+        <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+          <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
+            <div className="bg-red-500/10 text-[10px] tracking-wider text-red-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-red-100/50 -mx-6 -mt-6">
+              <span>ADMIN SECURE GATEWAY</span>
+              <div className="flex items-center gap-1.5 flex-row">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                <span>ACCESS RESTRICTED</span>
+              </div>
+            </div>
+            
+            <div className="flex-1 flex flex-col justify-center items-center text-center space-y-4">
+              <div className="w-16 h-16 bg-red-100 border border-red-200 text-red-600 rounded-2xl flex items-center justify-center font-bold text-2xl shadow-sm">
+                ⚠️
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 font-display">Access Denied (अवैध प्रवेश)</h2>
+              <p className="text-xs text-slate-500 leading-relaxed max-w-xs font-semibold">
+                This hidden ledger dashboard is reserved for administrative audits only. Logging in with email <span className="font-mono text-slate-800 font-bold break-all">{user.email}</span> does not confer administration permissions.
+              </p>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  window.history.pushState({}, '', '/');
+                  window.dispatchEvent(new Event('popstate'));
+                }}
+                className="px-5 py-3 bg-[#E05E23] hover:bg-orange-600 text-white rounded-xl text-xs font-extrabold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+              >
+                Go Back to Merchant Account
+              </button>
+            </div>
+            
+            <div className="text-center py-4 border-t border-slate-100 text-[10px] text-slate-400 font-bold -mx-6 -mb-6 bg-slate-50">
+              © 2026 InvoicePe Security Protocol
+            </div>
+          </div>
+        </div>
+      );
+    } else {
+      // Is admin user on /admin-invoicepe-secret route
+      return (
+        <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+          <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden transition-all duration-300">
+            {/* Admin Header */}
+            <div className="bg-slate-900 text-[10px] tracking-wider text-slate-350 px-4 py-3.5 flex justify-between items-center font-mono font-bold select-none border-b border-slate-800">
+              <span className="flex items-center gap-1.5 flex-row">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>INVOICEPE ADMIN MASTER SYSTEM</span>
+              </span>
+              <button
+                onClick={() => {
+                  window.history.pushState({}, '', '/');
+                  window.dispatchEvent(new Event('popstate'));
+                }}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white font-sans text-[10px] uppercase font-black rounded border border-slate-700 transition-all cursor-pointer"
+              >
+                Exit
+              </button>
+            </div>
+
+            {/* Admin View Body */}
+            <div className="flex-1 flex flex-col p-4 space-y-4 overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 font-display">
+                    <span>Admin Controls</span>
+                  </h1>
+                  <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mt-0.5">Global Ledger Synchronizer</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchAllAdminProfiles}
+                  className="px-3 py-1.5 bg-orange-500 text-white text-[9px] font-black uppercase rounded-lg cursor-pointer transition-all hover:bg-orange-600 shadow-sm"
+                >
+                  Sync DB
+                </button>
+              </div>              {/* Search Bar */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3.5" />
+                <input
+                  type="text"
+                  value={adminSearch}
+                  onChange={(e) => setAdminSearch(e.target.value)}
+                  placeholder="Search registered users by email..."
+                  className="w-full text-xs pl-8 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-950 shadow-sm"
+                />
+                {adminSearch && (
+                  <button
+                    onClick={() => setAdminSearch('')}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 text-sm font-extrabold bg-transparent border-0"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* Profiles List */}
+              <div className="space-y-2.5 flex-1 pb-10">
+                {adminLoading ? (
+                  <div className="py-20 flex flex-col items-center justify-center gap-2">
+                    <div className="w-8 h-8 rounded-full border-3 border-orange-200 border-t-orange-500 animate-spin"></div>
+                    <p className="text-[9px] uppercase tracking-widest font-extrabold text-orange-950 animate-pulse">Syncing Profiles Ledger...</p>
+                  </div>
+                ) : filteredAdminProfiles.length === 0 ? (
+                  <div className="py-16 text-center bg-white rounded-2xl border border-dashed border-slate-200 p-6 space-y-2">
+                    <p className="text-xl">🔍</p>
+                    <p className="text-xs font-bold text-slate-700">No matching merchants found</p>
+                    <p className="text-[9px] text-slate-400 shrink-0 font-bold uppercase">Try adjusting your query or click Sync DB.</p>
+                  </div>
+                ) : (
+                  filteredAdminProfiles.map((prof) => {
+                    const expiry = prof.pro_until ? new Date(prof.pro_until) : null;
+                    const isActive = expiry ? expiry > new Date() : false;
+                    const planType = isActive ? (prof.plan || 'pro') : 'free';
+                    const isMutating = adminMutatingId === prof.user_id + '-pro' || adminMutatingId === prof.user_id + '-business';
+                    
+                    return (
+                      <div key={prof.id || prof.user_id} className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-3 transition-all duration-200 hover:shadow-md">
+                        <div className="flex items-start justify-between border-b border-slate-100 pb-2">
+                          <div className="space-y-1 max-w-[70%]">
+                            <h3 className="text-xs font-black text-slate-900 leading-tight">{prof.shop_name || 'My General Store'}</h3>
+                            <p className="text-[10px] font-mono font-bold text-slate-500 truncate select-all">{prof.email || 'No email saved'}</p>
+                          </div>
+                          
+                          {/* Plan Status Badge */}
+                          <div className="flex flex-col items-end gap-1">
+                            {planType === 'business' ? (
+                              <span className="text-[8.5px] font-black uppercase bg-indigo-500 text-white px-2 py-0.5 rounded border border-indigo-400 select-none shadow-sm leading-none shrink-0">
+                                BUSINESS
+                              </span>
+                            ) : planType === 'pro' ? (
+                              <span className="text-[8.5px] font-black uppercase bg-emerald-500 text-white px-2 py-0.5 rounded border border-emerald-400 select-none shadow-sm leading-none shrink-0">
+                                PRO
+                              </span>
+                            ) : (
+                              <span className="text-[8.5px] font-black uppercase bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 select-none leading-none shrink-0">
+                                FREE
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Direct Metadata Fields */}
+                        <div className="grid grid-cols-1 gap-1 text-[9.5px] font-medium text-slate-600 bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 font-mono">
+                          <p className="truncate"><span className="text-slate-400 font-bold uppercase text-[8px]">User ID:</span> {prof.user_id}</p>
+                          <p className="truncate"><span className="text-slate-400 font-bold uppercase text-[8px]">Owner:</span> {prof.owner_name || 'N/A'}</p>
+                          <p className="truncate"><span className="text-slate-400 font-bold uppercase text-[8px]">UPI ID:</span> {prof.upi_id || 'N/A'}</p>
+                          <p><span className="text-slate-400 font-bold uppercase text-[8px]">Validity:</span> {isActive && expiry ? (
+                            <span className="text-emerald-600 font-black">
+                              PRO UNTIL: {expiry.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 font-black">EXPIRED / NOT ACTIVE</span>
+                          )}</p>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isMutating}
+                            onClick={() => handleUpgradeToPro(prof)}
+                            className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed text-center shadow-sm"
+                          >
+                            {adminMutatingId === prof.user_id + '-pro' ? 'Setting Pro...' : 'Set Pro'}
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isMutating}
+                            onClick={() => handleUpgradeToBusiness(prof)}
+                            className="flex-1 py-1.5 bg-indigo-650 hover:bg-indigo-700 disabled:bg-indigo-350 text-white rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed text-center shadow-sm"
+                          >
+                            {adminMutatingId === prof.user_id + '-business' ? 'Setting Biz...' : 'Set Business'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+
   if (!user) {
     return (
       <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
@@ -2494,7 +3329,8 @@ Powered by InvoicePe 🧾`;
                   <button
                     type="button"
                     onClick={() => {
-                      showToast('Enter original password or create a new signup credentials.', 'info');
+                      window.location.hash = 'forgot-password-secret';
+                      window.dispatchEvent(new Event('hashchange'));
                     }}
                     className="text-[10.5px] font-black text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
                   >
@@ -2802,10 +3638,17 @@ CREATE TABLE invoice_items (
               <div className="flex items-center gap-2 justify-between md:justify-start">
                 <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Namaste, {(typeof shopName === 'string' ? shopName : 'Verma General Store').split(' ')[0]}!</h2>
                 {isPro && (
-                  <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-emerald-400">
-                    <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
-                    <span>PRO ACTIVE until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Expired'}</span>
-                  </span>
+                  userPlan === 'business' ? (
+                    <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-indigo-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-indigo-400 font-mono">
+                      <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
+                      <span>BUSINESS ACTIVE until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Expired'}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-emerald-400 font-mono">
+                      <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
+                      <span>PRO ACTIVE until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Expired'}</span>
+                    </span>
+                  )
                 )}
               </div>
               <p className="text-slate-500 text-xs font-medium leading-none">Here is what's happening with your store today.</p>
@@ -3174,7 +4017,7 @@ CREATE TABLE invoice_items (
                   type="text"
                   value={customerSearchQuery}
                   onChange={(e) => setCustomerSearchQuery(e.target.value)}
-                  placeholder="Search Grahak by name or phone..."
+                  placeholder="Search Grahak by name, phone, or email... / ईमेल से खोजें"
                   className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
                 />
                 {customerSearchQuery && (
@@ -3571,28 +4414,60 @@ CREATE TABLE invoice_items (
                 {/* Form main context */}
                 <form onSubmit={handleSaveSettings} className="p-5 space-y-4 flex-1 pb-10 font-sans">
 
+                  {/* Admin Panel Entry Link */}
+                  {user?.email === 'chanchaltailor404@gmail.com' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSettingsOpen(false);
+                        window.history.pushState({}, '', '/admin-invoicepe-secret');
+                        window.dispatchEvent(new Event('popstate'));
+                      }}
+                      className="w-full p-4 bg-slate-900 hover:bg-slate-950 text-white rounded-xl flex items-center justify-between text-xs font-black tracking-wider uppercase leading-none cursor-pointer transition-all border border-slate-800 shadow-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>🔒 Open Admin Control Hub</span>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400 stroke-[3]" />
+                    </button>
+                  )}
+
                   {/* Subscription Plan Status Card */}
-                  <div className={`p-4 rounded-xl border ${isPro ? 'bg-emerald-50/30 border-emerald-100 text-emerald-950' : 'bg-orange-55/10 border-orange-100 text-orange-950'} flex items-center justify-between`}>
+                  <div className={`p-4 rounded-xl border ${isPro ? (userPlan === 'business' ? 'bg-indigo-50/30 border-indigo-100 text-indigo-950' : 'bg-emerald-50/30 border-emerald-100 text-emerald-950') : 'bg-orange-55/10 border-orange-100 text-orange-950'} flex items-center justify-between`}>
                     <div className="space-y-0.5">
                       <p className="text-[9.5px] uppercase tracking-wider font-extrabold text-slate-400">Subscription Plan</p>
                       {isPro ? (
-                        <p className="text-xs font-black text-emerald-600 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>Pro Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
-                        </p>
+                        userPlan === 'business' ? (
+                          <p className="text-xs font-black text-indigo-600 flex items-center gap-1.5 font-mono">
+                            <span className="w-2 h-2 rounded-full bg-indigo-550 animate-pulse" />
+                            <span>Business Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
+                          </p>
+                        ) : (
+                          <p className="text-xs font-black text-emerald-600 flex items-center gap-1.5 font-mono">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>Pro Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
+                          </p>
+                        )
                       ) : (
-                        <p className="text-xs font-black text-orange-650 flex items-center gap-1.5">
+                        <p className="text-xs font-black text-orange-650 flex items-center gap-1.5 font-mono">
                           <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
                           <span>Free Plan</span>
                         </p>
                       )}
                     </div>
                     {isPro ? (
-                      <span className="text-[10px] font-black uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-xl border border-emerald-400 shadow-sm leading-none shrink-0">
-                        PRO
-                      </span>
+                      userPlan === 'business' ? (
+                        <span className="text-[10px] font-black uppercase bg-indigo-500 text-white px-2.5 py-1.5 rounded-xl border border-indigo-400 shadow-sm leading-none shrink-0 font-mono">
+                          BUSINESS
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-xl border border-emerald-400 shadow-sm leading-none shrink-0 font-mono">
+                          PRO
+                        </span>
+                      )
                     ) : (
-                      <span className="text-[10px] font-black uppercase bg-orange-500 text-white px-2.5 py-1.5 rounded-xl border border-orange-400 shadow-sm leading-none shrink-0">
+                      <span className="text-[10px] font-black uppercase bg-orange-500 text-white px-2.5 py-1.5 rounded-xl border border-orange-400 shadow-sm leading-none shrink-0 font-mono">
                         FREE
                       </span>
                     )}
@@ -3736,6 +4611,69 @@ CREATE TABLE invoice_items (
                       <Share2 className="w-4 h-4 stroke-[2.5]" />
                       <span>Share Referral (व्हाट्सएप भेजें)</span>
                     </button>
+                  </div>
+
+                  {/* SECURITY SETTINGS / PASSWORD UPDATE */}
+                  <div className="space-y-4 bg-slate-900 text-white p-4 rounded-xl border border-slate-800">
+                    <h4 className="text-[11px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
+                      <span>Security & Password (खाता सुरक्षा)</span>
+                    </h4>
+
+                    {settingsPassError && (
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-200 text-xs font-bold rounded-lg leading-snug">
+                        ⚠️ {settingsPassError}
+                      </div>
+                    )}
+
+                    {settingsPassSuccess && (
+                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg leading-snug">
+                        ✨ {settingsPassSuccess}
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">नया पासवर्ड (New Password)</label>
+                        <input
+                          type="password"
+                          value={settingsNewPassword}
+                          onChange={(e) => setSettingsNewPassword(e.target.value)}
+                          placeholder="Min 6 characters"
+                          className="w-full text-xs px-3 py-2.5 bg-slate-800 border border-slate-750 rounded-xl focus:border-orange-500 focus:outline-none transition-all placeholder:text-slate-500 font-semibold text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">पासवर्ड की पुष्टि करें (Confirm Password)</label>
+                        <input
+                          type="password"
+                          value={settingsConfirmPassword}
+                          onChange={(e) => setSettingsConfirmPassword(e.target.value)}
+                          placeholder="Min 6 characters"
+                          className="w-full text-xs px-3 py-2.5 bg-slate-800 border border-slate-750 rounded-xl focus:border-orange-500 focus:outline-none transition-all placeholder:text-slate-500 font-semibold text-white"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleChangePasswordInSettings}
+                        disabled={settingsPassSubmitting}
+                        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-750 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        {settingsPassSubmitting ? (
+                          <>
+                            <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                            <span>Updating Password...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Key className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Change Password (पासवर्ड बदलें)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Submit Button */}
@@ -4719,12 +5657,14 @@ CREATE TABLE invoice_items (
                         Customer Ledger Book
                       </span>
                       <h3 className="text-base font-bold text-slate-900 leading-none">{activeCust.name}</h3>
-                      <p className="text-[10px] text-slate-450 mt-1 flex items-center gap-1 font-mono font-bold">
-                        <Phone className="w-3 h-3 text-slate-400" />
-                        {activeCust.phone && activeCust.phone !== 'No Mobile' 
-                          ? `+91 ${activeCust.phone}` 
-                          : 'No Mobile'}
-                      </p>
+                      <div className="flex flex-col gap-1 mt-1.5">
+                        <p className="text-[10px] text-slate-450 flex items-center gap-1 font-mono font-bold leading-none">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          {activeCust.phone && activeCust.phone !== 'No Mobile' 
+                            ? `+91 ${activeCust.phone}` 
+                            : 'No Mobile'}
+                        </p>
+                      </div>
                     </div>
                     <button
                       type="button"
