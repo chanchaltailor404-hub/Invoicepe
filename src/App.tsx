@@ -3866,7 +3866,7 @@ CREATE TABLE invoice_items (
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search Grahak name or invoice #..."
+                    placeholder="Search by Name or Phone..."
                     className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
                   />
                   {searchQuery && (
