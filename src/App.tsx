@@ -467,17 +467,17 @@ export default function App() {
     const planNormalized = (userPlan || '').toLowerCase().trim();
     const isPaidPlan = planNormalized === 'pro' || planNormalized === 'business';
 
-    // Check expiration if proUntil is set
-    let isExpired = false;
+    // Must have a future expiry date in proUntil to count as Pro/Business features active
+    let isExpired = true;
     if (proUntil) {
       const expiryDate = new Date(proUntil);
       const today = new Date();
-      if (expiryDate <= today) {
-        isExpired = true;
+      if (expiryDate > today) {
+        isExpired = false;
       }
     }
 
-    const resolvedPro = (isPaidPlan || proUntil !== null) && !isExpired;
+    const resolvedPro = isPaidPlan && !isExpired;
     console.log('DEBUG [isPro evaluation]: plan =', userPlan, 'proUntil =', proUntil, 'isExpired =', isExpired, 'Resolved Pro =', resolvedPro);
     return resolvedPro;
   }, [user, proUntil, userPlan]);
@@ -690,14 +690,14 @@ export default function App() {
         const rawPlan = data.plan || 'free';
         const planNormalized = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
 
-        let referralTrialActive = false;
+        let isActive = false;
         if (finalProUntil) {
           const expiryDate = new Date(finalProUntil);
           const today = new Date();
           if (expiryDate > today) {
-            referralTrialActive = true;
+            isActive = true;
           } else {
-            console.warn('DEBUG [fetchShopProfileFromSupabase]: pro_until trial has expired. Reverting plan in DB to free.');
+            console.warn('DEBUG [fetchShopProfileFromSupabase]: pro_until has expired. Reverting plan in DB to free.');
             try {
               await supabase
                 .from('shop_profiles')
@@ -710,10 +710,18 @@ export default function App() {
           }
         }
 
-        if (planNormalized === 'business') {
-          finalPlan = 'business';
-        } else if (planNormalized === 'pro' || referralTrialActive) {
-          finalPlan = 'pro';
+        // Only allow pro/business plans if they are active (not expired and have a valid expiry date)
+        if (isActive && finalProUntil) {
+          if (planNormalized === 'business') {
+            finalPlan = 'business';
+          } else if (planNormalized === 'pro') {
+            finalPlan = 'pro';
+          } else {
+            // In case plan in DB is not pro/business but pro_until is active
+            finalPlan = 'pro';
+          }
+        } else {
+          finalPlan = 'free';
         }
 
         setUserPlan(finalPlan);
@@ -1761,21 +1769,47 @@ export default function App() {
               setCustomShopAddressInput(updatedProfile.address);
               localStorage.setItem('invoicepe_shop_address', updatedProfile.address);
             }
-            if (updatedProfile.pro_until !== undefined) {
-              console.log('DEBUG [realtime]: pro_until updated =', updatedProfile.pro_until);
-              setProUntil(updatedProfile.pro_until);
-              if (updatedProfile.pro_until) {
-                localStorage.setItem('invoicepe_pro_until', updatedProfile.pro_until);
+            if (updatedProfile.pro_until !== undefined || updatedProfile.plan !== undefined) {
+              const currentProUntil = updatedProfile.pro_until !== undefined ? updatedProfile.pro_until : proUntil;
+              const currentPlan = updatedProfile.plan !== undefined ? updatedProfile.plan : userPlan;
+
+              let finalProUntil = currentProUntil || null;
+              let finalPlan = 'free';
+
+              const planNormalized = typeof currentPlan === 'string' ? currentPlan.toLowerCase().trim() : 'free';
+
+              let isActive = false;
+              if (finalProUntil) {
+                const expiryDate = new Date(finalProUntil);
+                const today = new Date();
+                if (expiryDate > today) {
+                  isActive = true;
+                } else {
+                  finalProUntil = null;
+                }
+              }
+
+              if (isActive && finalProUntil) {
+                if (planNormalized === 'business') {
+                  finalPlan = 'business';
+                } else {
+                  finalPlan = 'pro';
+                }
+              } else {
+                finalPlan = 'free';
+              }
+
+              console.log('DEBUG [realtime sync resolved]: finalPlan =', finalPlan, 'finalProUntil =', finalProUntil);
+              
+              setProUntil(finalProUntil);
+              setProExpiresAt(finalProUntil);
+              setUserPlan(finalPlan);
+
+              if (finalProUntil) {
+                localStorage.setItem('invoicepe_pro_until', finalProUntil);
               } else {
                 localStorage.removeItem('invoicepe_pro_until');
               }
-            }
-            if (updatedProfile.plan !== undefined) {
-              console.log('DEBUG [realtime]: plan updated =', updatedProfile.plan);
-              const rawPlan = updatedProfile.plan || 'free';
-              const normalizedPlan = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
-              const finalPlan = (normalizedPlan === 'pro' || normalizedPlan === 'business') ? normalizedPlan : 'free';
-              setUserPlan(finalPlan);
               localStorage.setItem('invoicepe_plan', finalPlan);
             }
             if (updatedProfile.gstin) {
@@ -3386,7 +3420,9 @@ Powered by InvoicePe 🧾`;
                   filteredAdminProfiles.map((prof) => {
                     const expiry = prof.pro_until ? new Date(prof.pro_until) : null;
                     const isActive = expiry ? expiry > new Date() : false;
-                    const planType = isActive ? (prof.plan || 'pro') : 'free';
+                    const rawPlan = prof.plan || 'free';
+                    const planNormalized = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
+                    const planType = (isActive && (planNormalized === 'pro' || planNormalized === 'business')) ? planNormalized : 'free';
                     const isMutating = adminMutatingId === prof.user_id + '-pro' || adminMutatingId === prof.user_id + '-business';
                     
                     return (
