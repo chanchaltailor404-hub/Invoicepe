@@ -93,6 +93,17 @@ export default function App() {
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  useEffect(() => {
+    if (isSettingsOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isSettingsOpen]);
+
   // GSTIN configuration
   const [gstin, setGstin] = useState(() => localStorage.getItem('invoicepe_gstin') || '');
   const [customGstinInput, setCustomGstinInput] = useState(() => localStorage.getItem('invoicepe_gstin') || '');
@@ -5030,23 +5041,23 @@ CREATE TABLE invoice_items (
         {/* DIALOG FOR MERCHANT SETTINGS & UPI */}
         <AnimatePresence>
           {isSettingsOpen && (
-            <>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               {/* Backplate backdrop overlay */}
               <motion.div
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
+                animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setIsSettingsOpen(false)}
-                className="absolute inset-0 bg-neutral-950 z-50 cursor-pointer"
+                className="fixed inset-0 bg-neutral-950/60 backdrop-blur-xs z-45 cursor-pointer"
               />
 
-              {/* Form container drawer panel slide-up */}
+              {/* Form container popup modal centered */}
               <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
+                initial={{ scale: 0.95, opacity: 0, y: 15 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 15 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-                className="absolute left-0 right-0 bottom-0 max-h-[85vh] bg-white rounded-t-3xl shadow-2xl z-50 flex flex-col border-t border-orange-100 overflow-hidden"
+                className="relative w-full max-w-md max-h-[85vh] bg-white rounded-3xl shadow-2xl z-50 flex flex-col border border-orange-100 overflow-hidden"
               >
                 {/* Header of Drawer */}
                 <div className="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 z-10 font-sans">
@@ -5378,7 +5389,7 @@ CREATE TABLE invoice_items (
 
                 </form>
               </motion.div>
-            </>
+            </div>
           )}
         </AnimatePresence>
 
