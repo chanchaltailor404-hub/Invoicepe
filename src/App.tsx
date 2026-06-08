@@ -34,7 +34,9 @@ import {
   Moon,
   Lock,
   Key,
-  Mail
+  Mail,
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -3693,6 +3695,28 @@ Powered by InvoicePe 🧾`;
                 )}
               </button>
             </div>
+
+            {/* HOMEPAGE TRUST SECTION */}
+            <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100 flex flex-col gap-2.5 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🇮🇳</span>
+                <span className="text-xs font-black text-slate-800 tracking-tight">Made for Indian Businesses</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-[11px] text-slate-600 font-bold">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">🧾</span>
+                  <span>Simple GST Billing</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">📲</span>
+                  <span>WhatsApp Invoice Sharing</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">⚡</span>
+                  <span>Fast & Easy to Use</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Footer lock and trust notation */}
@@ -3957,7 +3981,7 @@ CREATE TABLE invoice_items (
                 <div className="flex items-center gap-2">
                   <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${isPro ? 'bg-emerald-500' : 'bg-orange-500'}`} />
                   <span className="text-xs font-black text-slate-800 uppercase tracking-wider font-mono">
-                    {isPro ? 'Invoice Usage (Unlimited)' : 'Invoice Usage (Limit: 30)'}
+                    {isPro ? 'Invoice Usage (Unlimited)' : 'Free Invoice Usage'}
                   </span>
                 </div>
                 {!isPro ? (
@@ -3967,7 +3991,7 @@ CREATE TABLE invoice_items (
                 )}
               </div>
               
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <div className="relative pt-1">
                   <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-slate-100">
                     <div 
@@ -3978,9 +4002,9 @@ CREATE TABLE invoice_items (
                     />
                   </div>
                 </div>
-                <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 font-mono">
-                  <span>{invoices.length} Bills Created</span>
-                  <span>{isPro ? 'Unlimited Invoices Unlocked' : '30 Bills Limit'}</span>
+                <div className="flex justify-between items-center text-[11px] font-bold text-slate-500">
+                  <span className="font-sans font-black text-slate-700">{isPro ? `${invoices.length} Invoices Created` : `${invoices.length} / 30 Free Invoices Used`}</span>
+                  <span className="font-mono text-[10px]">{isPro ? 'Unlimited Invoices Unlocked' : '30 Bills Limit'}</span>
                 </div>
               </div>
 
@@ -3990,7 +4014,7 @@ CREATE TABLE invoice_items (
                   onClick={() => setShowLimitPopup(true)}
                   className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-[10px] tracking-wider py-2.5 px-4 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs active:scale-[0.99] uppercase font-sans"
                 >
-                  🚀 Upgrade to PRO / BUSINESS for Unlimited Invoices
+                  🚀 {invoices.length >= 30 ? 'Limit Reached • Upgrade to Continue' : 'Upgrade to PRO / BUSINESS for Unlimited Invoices'}
                 </button>
               )}
             </div>
@@ -4901,31 +4925,36 @@ CREATE TABLE invoice_items (
 
                   {/* REFERRAL SYSTEM SECTION (इनवाइट और कमाएं) */}
                   <div className="space-y-4 bg-orange-500/5 p-4 rounded-xl border border-orange-200/50">
-                    <h4 className="text-[11px] font-black text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
-                      <Gift className="w-4 h-4 text-orange-500 animate-bounce" />
-                      <span>Referral Program (इनवाइट और कमाएं)</span>
-                    </h4>
+                    <div className="text-center space-y-1">
+                      <h4 className="text-sm font-black text-slate-900 tracking-tight flex items-center justify-center gap-1.5">
+                        <Gift className="w-4 h-4 text-orange-500 animate-bounce shrink-0" />
+                        <span>Invite Friends • Get 1 Month Pro</span>
+                      </h4>
+                      <p className="text-xs font-semibold text-slate-500">
+                        Share your referral code and unlock rewards
+                      </p>
+                    </div>
 
                     {/* Big Orange referral code */}
-                    <div className="text-center bg-white p-4 rounded-xl border border-orange-100 shadow-sm space-y-2">
-                      <p className="text-[9.5px] text-slate-450 font-bold uppercase tracking-wider">Aapka Referral Code</p>
+                    <div className="text-center bg-white p-4.5 rounded-xl border border-orange-100 shadow-xs space-y-2">
+                      <p className="text-[10px] text-slate-450 font-extrabold uppercase tracking-wider">Your Referral Code</p>
                       <p className="text-3xl font-black text-orange-500 tracking-widest select-all font-sans">
                         {referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20')}
                       </p>
-                      <p className="text-[10px] text-slate-500 font-bold leading-relaxed">
-                        Apne dosto ko refer karein. Har signup par aapko aur aapke dost dono ko <span className="text-orange-500 font-extrabold">1 month absolute free Pro status</span> milega!
+                      <p className="text-[10.5px] text-slate-500 font-bold leading-relaxed">
+                        Earn <span className="text-orange-500 font-extrabold">1 month absolute free Pro status</span> for both you and your friend on every shop register!
                       </p>
                     </div>
 
                     {/* Stats counters */}
-                    <div className="grid grid-cols-2 gap-3.5 text-center">
-                      <div className="bg-white/80 p-3 rounded-xl border border-orange-150">
-                        <p className="text-[8.5px] text-slate-450 font-extrabold uppercase tracking-widest leading-none mb-1">Total Referrals Done</p>
-                        <p className="text-xl font-black text-slate-800 font-sans">{totalReferrals}</p>
+                    <div className="grid grid-cols-2 gap-3 text-center">
+                      <div className="bg-white/80 p-3 rounded-xl border border-orange-100 shadow-2xs">
+                        <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider leading-none mb-1.5">Total Referrals</p>
+                        <p className="text-lg font-black text-slate-800 font-sans">{totalReferrals}</p>
                       </div>
-                      <div className="bg-white/80 p-3 rounded-xl border border-orange-150">
-                        <p className="text-[8.5px] text-slate-450 font-extrabold uppercase tracking-widest leading-none mb-1">Free Months Earned</p>
-                        <p className="text-xl font-black text-orange-600 font-sans">{freeMonths}</p>
+                      <div className="bg-white/80 p-3 rounded-xl border border-orange-100 shadow-2xs">
+                        <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider leading-none mb-1.5">Free Months</p>
+                        <p className="text-lg font-black text-orange-600 font-sans">{freeMonths}</p>
                       </div>
                     </div>
 
@@ -4934,13 +4963,25 @@ CREATE TABLE invoice_items (
                       type="button"
                       onClick={() => {
                         const codeText = referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20');
-                        const shareMsg = `Namaste! Main InvoicePe use karta hun GST billing ke liye — bilkul free aur bahut aasaan! Mere referral code se signup karo aur 1 mahina free pao: ${codeText} 👉 https://invoicepe.co.in`;
+                        const shareMsg = `🧾 Dukaan ki billing ab easy!
+
+InvoicePe se:
+✅ GST invoices banao
+✅ WhatsApp pe instantly share karo
+✅ Udhaar track karo
+✅ Reports & PDF export
+
+⚡ First 30 invoices FREE
+
+👉 https://invoicepe.co.in
+
+🎁 Referral Code: ${codeText}`;
                         window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}`, '_blank');
                       }}
-                      className="w-full bg-orange-500 hover:bg-orange-650 active:scale-95 text-white py-3.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm uppercase tracking-widest"
+                      className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-3 border border-orange-400/20 rounded-xl font-black text-[11px] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs uppercase tracking-wider"
                     >
-                      <Share2 className="w-4 h-4 stroke-[2.5]" />
-                      <span>Share Referral (व्हाट्सएप भेजें)</span>
+                      <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Share via WhatsApp</span>
                     </button>
                   </div>
 
@@ -6223,9 +6264,55 @@ CREATE TABLE invoice_items (
                           )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           
-                          {/* Plan 1 — Pro */}
+                          {/* Plan 1 — Free */}
+                          <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200/60 flex flex-col justify-between space-y-4 shadow-2xs relative overflow-hidden">
+                            <div className="space-y-3">
+                              {/* Plan Header */}
+                              <div>
+                                <p className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest mb-0.5 font-mono">Current Plan</p>
+                                <h4 className="text-lg font-black text-slate-900 flex items-baseline gap-1.5">
+                                  <span>Free Plan</span>
+                                  <span className="text-slate-600 text-xl font-black">₹0<span className="text-[10px] text-slate-405 font-bold">/mo</span></span>
+                                </h4>
+                                <p className="text-[10px] text-slate-400 font-medium">Try basic billing features</p>
+                              </div>
+       
+                              {/* Feature List */}
+                              <ul className="space-y-2 text-xs text-slate-600">
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-slate-500 shrink-0 stroke-[3]" />
+                                  <span className="font-semibold text-slate-750">30 invoices limit</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-slate-500 shrink-0 stroke-[3]" />
+                                  <span>GST Billing</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-slate-500 shrink-0 stroke-[3]" />
+                                  <span>WhatsApp Sharing</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                  <Check className="w-3.5 h-3.5 text-slate-500 shrink-0 stroke-[3]" />
+                                  <span className="text-slate-500">Premium Features Trial</span>
+                                </li>
+                              </ul>
+                            </div>
+       
+                            {/* CTA button */}
+                            <div>
+                              <button
+                                type="button"
+                                disabled
+                                className="w-full bg-slate-2 w text-slate-400 py-3 rounded-2xl font-black text-[10px] flex items-center justify-center gap-1.5 tracking-wider uppercase font-mono cursor-not-allowed border border-slate-200"
+                              >
+                                Active Free Plan
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Plan 2 — Pro */}
                           <div className="bg-gradient-to-br from-indigo-50/20 via-white to-orange-50/10 p-5 rounded-3xl border border-orange-200 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
                             {/* Top Accent Ribbon */}
                             <div className="absolute top-0 right-0 bg-orange-500 text-white font-extrabold text-[8px] tracking-widest uppercase px-3.5 py-1 rounded-bl-2xl border-l border-b border-orange-200">
@@ -6240,7 +6327,7 @@ CREATE TABLE invoice_items (
                                   <span>Pro Plan</span>
                                   <span className="text-orange-600 text-xl font-black">₹{baseProPrice}<span className="text-[10px] text-slate-400 font-bold">/mo</span></span>
                                 </h4>
-                                <p className="text-[10px] text-slate-400 font-medium">Perfect for growing independent stores</p>
+                                <p className="text-[10px] text-slate-400 font-medium font-bold">Perfect for growing independent stores</p>
                               </div>
        
                               {/* Feature List */}
@@ -6251,28 +6338,24 @@ CREATE TABLE invoice_items (
                                 </li>
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                                  <span className="font-semibold text-slate-700">Voice Invoice entry (Unlocked)</span>
+                                  <span className="font-semibold text-slate-700">PDF Export</span>
                                 </li>
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                                  <span>PDF Exports & WhatsApp shares</span>
+                                  <span className="font-semibold text-slate-705">GST Reports</span>
                                 </li>
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                                  <span>UPI QR Generation</span>
+                                  <span>Voice Billing</span>
                                 </li>
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                                  <span className="font-semibold text-slate-700">GST Sales Reports (Unlocked)</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[3]" />
-                                  <span>1 staff login session</span>
+                                  <span>UPI QR</span>
                                 </li>
                               </ul>
                             </div>
        
-                            {/* WhatsApp CTA */}
+                            {/* WhatsApp CTA with new labeled Upgrade button */}
                             <div>
                               <button
                                 type="button"
@@ -6282,17 +6365,15 @@ CREATE TABLE invoice_items (
                                   const url = `https://api.whatsapp.com/send?phone=919828488365&text=${encodeURIComponent(customMessage)}`;
                                   window.open(url, '_blank', 'noopener,noreferrer');
                                 }}
-                                className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white py-3 rounded-2xl font-black text-[10px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-mono"
+                                className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-2xl font-black text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-orange-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-sans border border-orange-400/20"
                               >
-                                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.4 4.8 1.4 5.4 0 9.8-4.4 9.8-9.8 0-2.6-1-5-2.9-6.9-1.9-1.9-4.3-2.9-6.9-2.9-5.4 0-9.8 4.4-9.8 9.8 0 1.9.5 3.6 1.4 5.1L2.2 19.8l3.9-1c.4.3.7.6 1 .8zm11.5-6.7c-.3-.2-1.7-1-2-.1-.3-.1-.5-.2-.7-.2-.2 0-.4.1-.7.4-.3.3-.9.9-.9 1.1s-.2.3-.5.1c-.3-.2-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.3-.3-.1-.5.1-.7.2-.1.3-.4.5-.6.2-.2.2-.3.3-.5.1-.2 0-.4-.1-.5-.1-.2-.7-1.7-1-2.4-.3-.7-.6-.6-.8-.6-.2 0-.5-.1-.7-.1-.3 0-.7.1-1 .5-.4.4-1.4 1.4-1.4 3.4 0 2 1.4 3.9 1.6 4.2.2.3 2.9 4.4 7 6.2 1 .4 1.8.7 2.4.9 1 .3 1.9.3 2.6.2.8-.1 2.3-1 2.7-1.9.4-.9.4-1.7.3-1.9-.1-.3-.4-.5-.7-.6z"/>
-                                </svg>
-                                <span>Pro ke liye WhatsApp karein</span>
+                                <Sparkles className="w-3.5 h-3.5 text-orange-200 animate-pulse shrink-0" />
+                                <span>Upgrade to Pro</span>
                               </button>
                             </div>
                           </div>
        
-                          {/* Plan 2 — Business */}
+                          {/* Plan 3 — Business */}
                           <div className="bg-gradient-to-br from-indigo-50/40 via-white to-amber-50/10 p-5 rounded-3xl border border-indigo-200 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
                             {/* Top Accent Ribbon */}
                             <div className="absolute top-0 right-0 bg-indigo-600 text-white font-extrabold text-[8px] tracking-widest uppercase px-3.5 py-1 rounded-bl-2xl border-l border-b border-indigo-200">
@@ -6314,28 +6395,20 @@ CREATE TABLE invoice_items (
                               <ul className="space-y-2 text-xs text-slate-600">
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                                  <span className="font-semibold text-slate-800">Everything in Pro</span>
+                                  <span className="font-semibold text-slate-800">Multi Shop Management</span>
                                 </li>
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                                  <span>3 staff member logins</span>
+                                  <span>Staff Accounts</span>
                                 </li>
                                 <li className="flex items-center gap-2">
                                   <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                                  <span className="font-semibold text-indigo-800">Priority human support</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                                  <span>Upload custom business logo</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0 stroke-[3]" />
-                                  <span>Manage multiple shop profiles</span>
+                                  <span className="font-semibold text-indigo-805">Priority Support</span>
                                 </li>
                               </ul>
                             </div>
        
-                            {/* WhatsApp CTA */}
+                            {/* WhatsApp CTA with new labeled Upgrade button */}
                             <div>
                               <button
                                 type="button"
@@ -6345,12 +6418,10 @@ CREATE TABLE invoice_items (
                                   const url = `https://api.whatsapp.com/send?phone=919828488365&text=${encodeURIComponent(customMessage)}`;
                                   window.open(url, '_blank', 'noopener,noreferrer');
                                 }}
-                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-[10px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-mono"
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer tracking-wider uppercase font-sans border border-indigo-400/20"
                               >
-                                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.4 4.8 1.4 5.4 0 9.8-4.4 9.8-9.8 0-2.6-1-5-2.9-6.9-1.9-1.9-4.3-2.9-6.9-2.9-5.4 0-9.8 4.4-9.8 9.8 0 1.9.5 3.6 1.4 5.1L2.2 19.8l3.9-1c.4.3.7.6 1 .8zm11.5-6.7c-.3-.2-1.7-1-2-.1-.3-.1-.5-.2-.7-.2-.2 0-.4.1-.7.4-.3.3-.9.9-.9 1.1s-.2.3-.5.1c-.3-.2-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.3-.3-.1-.5.1-.7.2-.1.3-.4.5-.6.2-.2.2-.3.3-.5.1-.2 0-.4-.1-.5-.1-.2-.7-1.7-1-2.4-.3-.7-.6-.6-.8-.6-.2 0-.5-.1-.7-.1-.3 0-.7.1-1 .5-.4.4-1.4 1.4-1.4 3.4 0 2 1.4 3.9 1.6 4.2.2.3 2.9 4.4 7 6.2 1 .4 1.8.7 2.4.9 1 .3 1.9.3 2.6.2.8-.1 2.3-1 2.7-1.9.4-.9.4-1.7.3-1.9-.1-.3-.4-.5-.7-.6z"/>
-                                </svg>
-                                <span>Business ke liye WhatsApp karein</span>
+                                <Zap className="w-3.5 h-3.5 text-indigo-200 animate-pulse shrink-0" />
+                                <span>Upgrade to Business</span>
                               </button>
                             </div>
                           </div>

@@ -1,12 +1,12 @@
-const CACHE_NAME = 'invoicepe-cache-v1';
+const CACHE_NAME = 'invoicepe-cache-v2';
 const PRE_CACHE_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json?v=11',
-  '/favicon.ico?v=11',
-  '/apple-touch-icon.png?v=11',
-  '/android-chrome-192x192.png?v=11',
-  '/android-chrome-512x512.png?v=11',
+  '/manifest.json?v=12',
+  '/favicon.ico?v=12',
+  '/apple-touch-icon.png?v=12',
+  '/android-chrome-192x192.png?v=12',
+  '/android-chrome-512x512.png?v=12',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
 ];
 
