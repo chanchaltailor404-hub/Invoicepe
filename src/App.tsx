@@ -59,10 +59,14 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'verification_pending'>('login');
   const [rememberMe, setRememberMe] = useState(true);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [verificationPendingEmail, setVerificationPendingEmail] = useState('');
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
   // State for shop configuration
   const [shopName, setShopName] = useState(() => localStorage.getItem('invoicepe_shop_name') || 'Verma General Store');
@@ -208,6 +212,14 @@ export default function App() {
     paidAmount: number;
     invoices: Invoice[];
   } | null>(null);
+
+  // Secure Email Verification Check: Distinguish new users requiring confirmation from legacy/existing users
+  const isUnverifiedNewUser = useMemo(() => {
+    if (!user) return false;
+    const needsVerification = user.user_metadata?.verification_required === true;
+    const isEmailConfirmed = !!user.email_confirmed_at;
+    return needsVerification && !isEmailConfirmed;
+  }, [user]);
 
   // Derived unique customers list
   const customers = useMemo(() => {
@@ -1315,7 +1327,8 @@ export default function App() {
           password,
           options: {
             data: {
-              shop_name: shopName.trim() || 'My General Store'
+              shop_name: shopName.trim() || 'My General Store',
+              verification_required: true // Securely tag new signups to verify email
             }
           }
         });
@@ -1326,16 +1339,17 @@ export default function App() {
           await handleRegisterReferralAndProfile(data.session.user, enteredReferralCode);
           setEnteredReferralCode('');
           setUser(data.session.user);
-          showToast('Welcome to InvoicePe! Your shop is created.', 'success');
+          if (data.session.user.user_metadata?.verification_required === true && !data.session.user.email_confirmed_at) {
+            showToast('Signup successful! Verification email sent.', 'success');
+          } else {
+            showToast('Welcome to InvoicePe! Your shop is created.', 'success');
+          }
         } else if (data.user) {
           await handleRegisterReferralAndProfile(data.user, enteredReferralCode);
           setEnteredReferralCode('');
-          showToast('Signup successful!', 'success');
-          // Email confirmation is enabled on their project
-          setAuthError(
-            "Account registered! Log in now. IMPORTANT: If you see 'Email not confirmed' on login, please confirm your email OR go to Supabase Dashboard -> Authentication -> Providers -> Email and turn OFF 'Confirm email' for instant login."
-          );
-          setAuthMode('login');
+          showToast('Signup successful! Verification email sent.', 'success');
+          setVerificationPendingEmail(email);
+          setAuthMode('verification_pending');
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -1347,6 +1361,8 @@ export default function App() {
 
         if (data.user) {
           setUser(data.user);
+          // Auto clear any unconfirmed states on successful login
+          setUnconfirmedEmail(null);
           const metaShop = data.user.user_metadata?.shop_name;
           if (metaShop) {
             setShopName(metaShop);
@@ -1361,9 +1377,10 @@ export default function App() {
       const errMsg = friendlyError.toLowerCase();
       
       if (errMsg.includes('email not confirmed')) {
-        friendlyError = "Email not confirmed! Please verify your email inbox. 💡 TIP: You can disable this restriction by opening your Supabase Dashboard -> Authentication -> Providers -> Email and untoggling 'Confirm email'. This allows instant sign-up & log-in without email checks.";
+        setUnconfirmedEmail(email);
+        friendlyError = "Email not confirmed! Your new account requires email verification. Please check your email inbox to activate, or use 'Resend Link' below.";
       } else if (errMsg.includes('rate limit') || errMsg.includes('20 seconds') || errMsg.includes('too many requests')) {
-        friendlyError = "Rate limit reached. Please wait a few seconds before trying again. 💡 TIP: Turn OFF 'Confirm email' in Supabase to log in instantly and avoid triggering verification limits.";
+        friendlyError = "Rate limit reached. Please wait a few seconds before trying again.";
       }
       
       setAuthError(friendlyError);
@@ -3585,145 +3602,255 @@ Powered by InvoicePe 🧾`;
               )}
             </AnimatePresence>
 
-            {/* Form */}
-            <form onSubmit={handleAuthSubmit} className="space-y-4">
-              {authMode === 'signup' && (
-                <div className="space-y-1 animate-fadeIn">
-                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Merchant Shop Name</label>
-                  <input
-                    type="text"
-                    value={shopName}
-                    onChange={(e) => {
-                      setShopName(e.target.value);
-                      setCustomShopInput(e.target.value);
+            {authMode === 'verification_pending' ? (
+              <div className="space-y-4 p-5 bg-white rounded-2xl border border-orange-100 shadow-sm text-center animate-fadeIn">
+                <div className="mx-auto w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-xl">
+                  ✉️
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Verify Your Merchant Account</h3>
+                  <p className="text-[11px] font-semibold text-slate-500 leading-relaxed">
+                    A secure activation link has been sent to your email. Check your inbox to activate your digital ledger book!
+                  </p>
+                </div>
+
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-widest mb-1 leading-none">Registered Email</span>
+                  <span className="text-xs font-bold text-slate-800 font-mono break-all leading-normal block">{verificationPendingEmail}</span>
+                </div>
+
+                {resendingEmail && (
+                  <div className="flex items-center justify-center gap-1.5 py-1">
+                    <div className="w-4 h-4 rounded-full border-2 border-orange-500 border-t-transparent animate-spin"></div>
+                    <span className="text-[10px] font-black uppercase text-orange-600 animate-pulse tracking-widest">Resending Code...</span>
+                  </div>
+                )}
+
+                <div className="space-y-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={resendingEmail}
+                    onClick={async () => {
+                      setResendingEmail(true);
+                      try {
+                        const { error } = await supabase.auth.resend({
+                          type: 'signup',
+                          email: verificationPendingEmail,
+                          options: {
+                            emailRedirectTo: window.location.origin
+                          }
+                        });
+                        if (error) {
+                          showToast("Error: " + error.message, "info");
+                        } else {
+                          showToast("Verification link resent successfully!", "success");
+                        }
+                      } catch (err: any) {
+                        showToast("Could not resend link.", "info");
+                      } finally {
+                        setResendingEmail(false);
+                      }
                     }}
-                    placeholder="e.g. Verma General Store"
-                    required
-                    className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
-                  />
-                </div>
-              )}
+                    className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-extrabold text-[11px] tracking-wider uppercase transition-all shadow-md active:scale-95 cursor-pointer leading-none"
+                  >
+                    Resend Verification Link
+                  </button>
 
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Email Address</label>
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="name@store.com"
-                  required
-                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Security Password</label>
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="Min 6 characters"
-                  required
-                  minLength={6}
-                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
-                />
-              </div>
-
-              {authMode === 'signup' && (
-                <div className="space-y-1 animate-fadeIn">
-                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Have a referral code? Enter here (optional)</label>
-                  <input
-                    type="text"
-                    value={enteredReferralCode}
-                    onChange={(e) => setEnteredReferralCode(e.target.value.trim().toUpperCase())}
-                    placeholder="e.g. RAMESH20"
-                    className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm uppercase font-mono placeholder:font-sans placeholder:normal-case"
-                  />
-                </div>
-              )}
-
-              {/* Remember Me box & Help */}
-              <div className="flex items-center justify-between pt-1 select-none">
-                <label className="flex items-center gap-2 cursor-pointer font-bold text-[10.5px] text-slate-500">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
-                  />
-                  <span>Remember me</span>
-                </label>
-                {authMode === 'login' && (
                   <button
                     type="button"
                     onClick={() => {
-                      window.location.hash = 'forgot-password-secret';
-                      window.dispatchEvent(new Event('hashchange'));
+                      setAuthMode('login');
+                      setAuthError(null);
+                      setUnconfirmedEmail(null);
                     }}
-                    className="text-[10.5px] font-black text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-[11px] uppercase tracking-wider transition-all border border-slate-200 cursor-pointer block text-center"
                   >
-                    Forgot Lock?
+                    Back to Merchant Login
                   </button>
-                )}
+                </div>
               </div>
-
-              {/* Submit Error */}
-              {authError && (
-                <div className="p-3.5 bg-red-50 border border-red-100 rounded-xl flex flex-col gap-1.5 text-[10.5px] font-bold text-red-700 leading-snug">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                    <span>{authError.split('💡')[0]}</span>
-                  </div>
-                  {authError.includes('💡') && (
-                    <div className="mt-1 bg-amber-500/15 border border-amber-500/20 text-amber-900 rounded-lg p-2.5 font-bold space-y-1">
-                      <p className="flex items-center gap-1 text-[9.5px] text-amber-850 uppercase tracking-widest font-extrabold">
-                        <span>💡 Developer Solution</span>
-                      </p>
-                      <p className="text-[10px] text-slate-700 font-semibold leading-relaxed">
-                        {authError.substring(authError.indexOf('💡') + 1).replace('TIP:', '').replace('Tip:', '').trim()}
-                      </p>
+            ) : (
+              <>
+                {/* Form */}
+                <form onSubmit={handleAuthSubmit} className="space-y-4">
+                  {authMode === 'signup' && (
+                    <div className="space-y-1 animate-fadeIn">
+                      <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Merchant Shop Name</label>
+                      <input
+                        type="text"
+                        value={shopName}
+                        onChange={(e) => {
+                          setShopName(e.target.value);
+                          setCustomShopInput(e.target.value);
+                        }}
+                        placeholder="e.g. Verma General Store"
+                        required
+                        className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                      />
                     </div>
                   )}
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Email Address</label>
+                    <input
+                      type="email"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="name@store.com"
+                      required
+                      className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Security Password</label>
+                    <input
+                      type="password"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      required
+                      minLength={6}
+                      className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                    />
+                  </div>
+
+                  {authMode === 'signup' && (
+                    <div className="space-y-1 animate-fadeIn">
+                      <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Have a referral code? Enter here (optional)</label>
+                      <input
+                        type="text"
+                        value={enteredReferralCode}
+                        onChange={(e) => setEnteredReferralCode(e.target.value.trim().toUpperCase())}
+                        placeholder="e.g. RAMESH20"
+                        className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm uppercase font-mono placeholder:font-sans placeholder:normal-case"
+                      />
+                    </div>
+                  )}
+
+                  {/* Remember Me box & Help */}
+                  <div className="flex items-center justify-between pt-1 select-none">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-[10.5px] text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
+                      />
+                      <span>Remember me</span>
+                    </label>
+                    {authMode === 'login' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.hash = 'forgot-password-secret';
+                          window.dispatchEvent(new Event('hashchange'));
+                        }}
+                        className="text-[10.5px] font-black text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
+                      >
+                        Forgot Lock?
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Submit Error */}
+                  {authError && (
+                    <div className="p-3.5 bg-red-50 border border-red-100 rounded-xl flex flex-col gap-1.5 text-[10.5px] font-bold text-red-700 leading-snug">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                        <span>{authError.split('💡')[0]}</span>
+                      </div>
+                      {authError.includes('💡') && (
+                        <div className="mt-1 bg-amber-500/15 border border-amber-500/20 text-amber-900 rounded-lg p-2.5 font-bold space-y-1">
+                          <p className="flex items-center gap-1 text-[9.5px] text-amber-850 uppercase tracking-widest font-extrabold">
+                            <span>💡 Developer Solution</span>
+                          </p>
+                          <p className="text-[10px] text-slate-700 font-semibold leading-relaxed">
+                            {authError.substring(authError.indexOf('💡') + 1).replace('TIP:', '').replace('Tip:', '').trim()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Resend button for unconfirmed login attempts */}
+                  {unconfirmedEmail && (
+                    <div className="p-3.5 bg-orange-50 border border-orange-100 rounded-xl space-y-2 text-center">
+                      <p className="text-[10.5px] font-bold text-slate-600 leading-snug">
+                        New Account requires activation. Resend secure verification link to <span className="font-mono text-slate-800 break-all">{unconfirmedEmail}</span>?
+                      </p>
+                      <button
+                        type="button"
+                        disabled={resendingEmail}
+                        onClick={async () => {
+                          setResendingEmail(true);
+                          try {
+                            const { error } = await supabase.auth.resend({
+                              type: 'signup',
+                              email: unconfirmedEmail,
+                              options: {
+                                emailRedirectTo: window.location.origin
+                              }
+                            });
+                            if (error) {
+                              showToast("Error: " + error.message, "info");
+                            } else {
+                              showToast("Verification link sent successfully! Check inbox.", "success");
+                              setUnconfirmedEmail(null);
+                            }
+                          } catch (err: any) {
+                            showToast("Could not resend email.", "info");
+                          } finally {
+                            setResendingEmail(false);
+                          }
+                        }}
+                        className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-extrabold text-[10px] tracking-widest uppercase py-2.5 rounded-xl transition-all shadow-sm cursor-pointer"
+                      >
+                        {resendingEmail ? "Sending Code..." : "Resend Verification Link"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Action Button */}
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-extrabold text-xs shadow-md shadow-orange-100 uppercase tracking-widest transition-all cursor-pointer"
+                  >
+                    {authSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                        <span>Processing Session...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{authMode === 'login' ? 'Proceed to Ledger Book' : 'Register Shop & Start Book'}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Toggle Login vs SignUp option */}
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode(authMode === 'login' ? 'signup' : 'login');
+                      setAuthError(null);
+                      setUnconfirmedEmail(null);
+                    }}
+                    className="text-[11px] font-extrabold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
+                  >
+                    {authMode === 'login' ? (
+                      <>Don't have an account? <span className="text-orange-500 underline ml-1">Create Shop Signup</span></>
+                    ) : (
+                      <>Already registered merchant? <span className="text-orange-500 underline ml-1">Log In Here</span></>
+                    )}
+                  </button>
                 </div>
-              )}
-
-              {/* Action Button */}
-              <button
-                type="submit"
-                disabled={authSubmitting}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-extrabold text-xs shadow-md shadow-orange-100 uppercase tracking-widest transition-all cursor-pointer"
-              >
-                {authSubmitting ? (
-                  <>
-                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                    <span>Processing Session...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>{authMode === 'login' ? 'Proceed to Ledger Book' : 'Register Shop & Start Book'}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Toggle Login vs SignUp option */}
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                  setAuthError(null);
-                }}
-                className="text-[11px] font-extrabold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
-              >
-                {authMode === 'login' ? (
-                  <>Don't have an account? <span className="text-orange-500 underline ml-1">Create Shop Signup</span></>
-                ) : (
-                  <>Already registered merchant? <span className="text-orange-500 underline ml-1">Log In Here</span></>
-                )}
-              </button>
-            </div>
+              </>
+            )}
 
             {/* HOMEPAGE TRUST SECTION */}
             <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100 flex flex-col gap-2.5 shadow-2xs">
@@ -3743,6 +3870,155 @@ Powered by InvoicePe 🧾`;
                 <div className="flex items-center gap-2">
                   <span className="text-sm">⚡</span>
                   <span>Fast & Easy to Use</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer lock and trust notation */}
+          <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest -mx-6 -mb-6 bg-slate-50">
+            <p>🔒 AES-256 Bit Supabase Encrypted Ledger</p>
+            <p>© 2026 InvoicePe App. All customer data saved securely.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isUnverifiedNewUser) {
+    return (
+      <div id="unverified-portal-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
+          
+          {/* Top Status Accent */}
+          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/50 -mx-6 -mt-6">
+            <span>SECURE INVOICEPE PORTAL</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+              <span>VERIFICATION REQUIRED</span>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col justify-center py-6 space-y-6">
+            {/* Branding Header */}
+            <div className="text-center space-y-3">
+              <div className="mx-auto w-14 h-14 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-lg shadow-orange-200/80">
+                I
+              </div>
+              <div className="space-y-1 pt-1">
+                <h1 className="text-2xl font-display font-black text-slate-900 tracking-tight leading-none">
+                  Invoice<span className="text-orange-500">Pe</span>
+                </h1>
+                <p className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-widest leading-none mt-1">
+                  SECURE EMAIL CONFIRMATION
+                </p>
+              </div>
+            </div>
+
+            {/* Verification card */}
+            <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm space-y-4">
+              <div className="text-center space-y-1">
+                <div className="text-3xl">✉️</div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Confirm Your Email Address</h3>
+                <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+                  We sent a secure activation link to verify your shop registrar credentials.
+                </p>
+              </div>
+
+              {/* Email Address box */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-widest leading-none mb-1">Registered Email</span>
+                <span className="text-xs font-bold text-slate-850 font-mono break-all">{user.email}</span>
+              </div>
+
+              {/* Loader during check/resend */}
+              {(checkingStatus || resendingEmail) && (
+                <div className="flex items-center justify-center gap-2 py-1">
+                  <div className="w-4 h-4 rounded-full border-2 border-orange-500 border-t-transparent animate-spin"></div>
+                  <span className="text-[11px] font-black tracking-widest uppercase text-orange-600 animate-pulse">
+                    {checkingStatus ? "Checking inbox link..." : "Resending code..."}
+                  </span>
+                </div>
+              )}
+
+              {/* Dynamic instruction notes */}
+              <div className="bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 text-[10.5px] font-semibold text-slate-600 leading-relaxed space-y-1.5">
+                <p className="text-orange-650 font-black text-[9.5px] uppercase tracking-wider flex items-center gap-1 leading-none">
+                  <span>💡 Complete configuration:</span>
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-slate-500">
+                  <li>Open your email inbox, check for verification mail from InvoicePe or Supabase.</li>
+                  <li>Click the secure confirm link to instantly enable full GST & Udhaar book access.</li>
+                  <li>Don't see it? Please check your <strong>Spam/Junk folder</strong>.</li>
+                </ul>
+              </div>
+
+              {/* Actions */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={checkingStatus || resendingEmail}
+                  onClick={async () => {
+                    setCheckingStatus(true);
+                    try {
+                      const { data: { user: updatedUser }, error } = await supabase.auth.getUser();
+                      if (error) {
+                        showToast("Failed to refresh: " + error.message, "info");
+                      } else if (updatedUser) {
+                        setUser(updatedUser);
+                        if (updatedUser.email_confirmed_at) {
+                          showToast("Email verified successfully! Welcome.", "success");
+                        } else {
+                          showToast("Confirmation is still pending. Tap link in your inbox first!", "info");
+                        }
+                      }
+                    } catch (err: any) {
+                      showToast("Connection check error.", "info");
+                    } finally {
+                      setCheckingStatus(false);
+                    }
+                  }}
+                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 text-white py-3 rounded-xl font-extrabold text-[11px] tracking-wider uppercase transition-all cursor-pointer text-center shadow-md active:scale-95"
+                >
+                  Verify Link Clicked (I clicked it)
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={checkingStatus || resendingEmail}
+                    onClick={async () => {
+                      setResendingEmail(true);
+                      try {
+                        const { error } = await supabase.auth.resend({
+                          type: 'signup',
+                          email: user.email,
+                          options: {
+                            emailRedirectTo: window.location.origin
+                          }
+                        });
+                        if (error) {
+                          showToast("Error: " + error.message, "info");
+                        } else {
+                          showToast("Verification email resent!", "success");
+                        }
+                      } catch (err: any) {
+                        showToast("Failed to resend confirmation.", "info");
+                      } finally {
+                        setResendingEmail(false);
+                      }
+                    }}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer text-center border border-slate-250"
+                  >
+                    Resend Email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer text-center"
+                  >
+                    Log Out
+                  </button>
                 </div>
               </div>
             </div>
@@ -4791,10 +5067,10 @@ CREATE TABLE invoice_items (
                 </div>
 
                 {/* Form wrapping body and sticky footer */}
-                <form onSubmit={handleSaveSettings} className="flex-1 flex flex-col min-h-0 font-sans relative">
+                <form onSubmit={handleSaveSettings} className="flex-1 flex flex-col min-h-0 font-sans">
                   
                   {/* Scrollable inputs region */}
-                  <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 pb-24">
+                  <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
                     <div className="space-y-3 bg-orange-50/20 p-3.5 rounded-xl border border-orange-100">
                       <h4 className="text-[11px] font-bold text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
@@ -5083,7 +5359,7 @@ CREATE TABLE invoice_items (
                   </div>
 
                   {/* Sticky Footer */}
-                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-slate-55 border-t border-slate-100 flex gap-2.5 z-20 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2.5 z-10 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.03)] bg-gradient-to-b from-white to-slate-50">
                     <button
                       type="button"
                       onClick={() => setIsSettingsOpen(false)}
@@ -5093,7 +5369,7 @@ CREATE TABLE invoice_items (
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 py-3 text-white rounded-xl font-black text-[11px] uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-orange-100 active:scale-[0.98]"
+                      className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 py-3 text-white rounded-xl font-black text-[11px] uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-orange-150 active:scale-[0.98]"
                     >
                       <Check className="w-4 h-4 stroke-[3]" />
                       <span>सुरक्षित करें (Save Settings)</span>
