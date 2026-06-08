@@ -1110,11 +1110,33 @@ export default function App() {
     }
 
     try {
-      const { data: profileWithCode, error: lookupErr } = await supabase
+      const enteredCode = upgradeReferralCode;
+      console.log('DEBUG [Referral Verification] User entered:', enteredCode);
+
+      // Fetch what codes exist in shop_profiles
+      const { data: allProfiles, error: allProfilesErr } = await supabase
         .from('shop_profiles')
-        .select('user_id, owner_name, shop_name')
-        .eq('referral_code', cleanCode)
-        .maybeSingle();
+        .select('referral_code, shop_name, user_id');
+      
+      if (allProfiles) {
+        const availableCodes = allProfiles
+          .map(p => p.referral_code)
+          .filter(code => code !== null && code !== undefined && code !== '');
+        console.log('DEBUG [Referral Verification] Codes existing in shop_profiles:', availableCodes);
+        console.log('DEBUG [Referral Verification] Full existing profiles:', allProfiles);
+      } else {
+        console.log('DEBUG [Referral Verification] Failed to query existing profiles or none found:', allProfilesErr);
+      }
+
+      // Exact search query requested
+      const { data: matchingProfiles, error: lookupErr } = await supabase
+        .from('shop_profiles')
+        .select()
+        .eq('referral_code', enteredCode.toUpperCase().trim());
+
+      console.log('DEBUG [Referral Verification] Match search query result:', matchingProfiles, 'error:', lookupErr);
+
+      const profileWithCode = matchingProfiles && matchingProfiles.length > 0 ? matchingProfiles[0] : null;
 
       if (lookupErr || !profileWithCode) {
         showToast('Invalid referral code! Verification failed.', 'info');
