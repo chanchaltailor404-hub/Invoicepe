@@ -42,6 +42,17 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { INITIAL_INVOICES, Invoice, InvoiceItem, SUGGESTED_ITEMS, UdhaarEntry } from './data';
 
+// Secure input validation and sanitization helpers to prevent XSS / Injection
+export function sanitizeTextInput(val: string): string {
+  if (!val) return '';
+  return val.replace(/<[^>]*>/g, '').trim();
+}
+
+export function sanitizePhoneInput(val: string): string {
+  if (!val) return '';
+  return val.replace(/[^0-9+\-\s()]/g, '').trim();
+}
+
 export default function App() {
   // Supabase Auth States
   const [user, setUser] = useState<any>(null);
@@ -1411,15 +1422,33 @@ export default function App() {
   // Save custom shop configuration and UPI details
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newName = customShopInput.trim();
-    const newUpi = customUpiInput.trim();
-    const newGstin = customGstinInput.trim().toUpperCase();
-    const newOwnerName = customOwnerInput.trim();
-    const newPhone = customShopPhoneInput.trim();
-    const newAddress = customShopAddressInput.trim();
+    const newName = sanitizeTextInput(customShopInput);
+    const newUpi = sanitizeTextInput(customUpiInput);
+    const newGstin = sanitizeTextInput(customGstinInput).toUpperCase();
+    const newOwnerName = sanitizeTextInput(customOwnerInput);
+    const newPhone = sanitizePhoneInput(customShopPhoneInput);
+    const newAddress = sanitizeTextInput(customShopAddressInput);
 
     if (!newName) {
-      showToast('Shop name updated nahi kiya ja sakta, kripya sahi naam bharein!', 'info');
+      showToast('Merchant Shop name is required!', 'info');
+      return;
+    }
+
+    // Safety Validation: Validate GSTIN if provided
+    if (newGstin && newGstin.length !== 15) {
+      showToast('GSTIN 15 digit alphanumeric hona chahiye (Optional).', 'info');
+      return;
+    }
+
+    // Safety Validation: Validate UPI ID simple structure if provided
+    if (newUpi && !newUpi.includes('@')) {
+      showToast('UPI ID sahi format me hona chahiye (eg. name@bank).', 'info');
+      return;
+    }
+
+    // Safety Validation: Validate Phone number format if provided
+    if (newPhone && newPhone.replace(/[\s\-()]/g, '').length < 10) {
+      showToast('Kripya valid 10-digit phone number daalein.', 'info');
       return;
     }
 
@@ -1993,8 +2022,8 @@ export default function App() {
     setIsLoading(true);
     try {
       const total = formItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
-      const custNameTrim = customerName.trim();
-      const custPhoneTrim = customerPhone.trim() || 'No Mobile';
+      const custNameTrim = sanitizeTextInput(customerName);
+      const custPhoneTrim = sanitizePhoneInput(customerPhone) || 'No Mobile';
       let customerId: string;
       
       // Get or create customer ID in Supabase belonging to this user
@@ -3518,7 +3547,7 @@ Powered by InvoicePe 🧾`;
           
           {/* Top Status Accent */}
           <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/50 -mx-6 -mt-6">
-            <span>INVOICEPE PORTALSECURE</span>
+            <span>SECURE INVOICEPE PORTAL</span>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
               <span>SYSTEM LOGIN</span>
@@ -4741,16 +4770,16 @@ CREATE TABLE invoice_items (
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
                 transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-                className="absolute left-0 right-0 bottom-0 max-h-[85vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
+                className="absolute left-0 right-0 bottom-0 max-h-[85vh] bg-white rounded-t-3xl shadow-2xl z-50 flex flex-col border-t border-orange-100 overflow-hidden"
               >
                 {/* Header of Drawer */}
-                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10 font-sans">
+                <div className="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 z-10 font-sans">
                   <div>
-                    <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide flex items-center gap-1.5 text-orange-600">
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 text-orange-600">
                       <QrCode className="w-4 h-4 text-orange-500 animate-pulse" />
                       <span>व्यापार सेटिंग्स (Merchant Settings)</span>
                     </h3>
-                    <p className="text-[10px] text-neutral-500 mt-0.5">Configure your shop/store details & UPI address</p>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Configure your shop details & UPI address</p>
                   </div>
                   <button
                     type="button"
@@ -4761,301 +4790,313 @@ CREATE TABLE invoice_items (
                   </button>
                 </div>
 
-                {/* Form main context */}
-                <form onSubmit={handleSaveSettings} className="p-5 space-y-4 flex-1 pb-10 font-sans">
-
-                  {/* Admin Panel Entry Link */}
-                  {user?.email === 'chanchaltailor404@gmail.com' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSettingsOpen(false);
-                        window.history.pushState({}, '', '/admin-invoicepe-secret');
-                        window.dispatchEvent(new Event('popstate'));
-                      }}
-                      className="w-full p-4 bg-slate-900 hover:bg-slate-950 text-white rounded-xl flex items-center justify-between text-xs font-black tracking-wider uppercase leading-none cursor-pointer transition-all border border-slate-800 shadow-sm"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span>🔒 Open Admin Control Hub</span>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 stroke-[3]" />
-                    </button>
-                  )}
-
-                  {/* Subscription Plan Status Card */}
-                  <div className={`p-4 rounded-xl border ${isPro ? (userPlan === 'business' ? 'bg-indigo-50/30 border-indigo-100 text-indigo-950' : 'bg-emerald-50/30 border-emerald-100 text-emerald-950') : 'bg-orange-55/10 border-orange-100 text-orange-950'} flex items-center justify-between`}>
-                    <div className="space-y-0.5">
-                      <p className="text-[9.5px] uppercase tracking-wider font-extrabold text-slate-400">Subscription Plan</p>
-                      {isPro ? (
-                        userPlan === 'business' ? (
-                          <p className="text-xs font-black text-indigo-600 flex items-center gap-1.5 font-mono">
-                            <span className="w-2 h-2 rounded-full bg-indigo-550 animate-pulse" />
-                            <span>Business Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
-                          </p>
-                        ) : (
-                          <p className="text-xs font-black text-emerald-600 flex items-center gap-1.5 font-mono">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            <span>Pro Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
-                          </p>
-                        )
-                      ) : (
-                        <p className="text-xs font-black text-orange-650 flex flex-col gap-1 font-mono">
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                            <span>Free Plan</span>
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-bold ml-3.5">
-                            Usage: {invoices.length} of 30 bills issued
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                    {isPro ? (
-                      userPlan === 'business' ? (
-                        <span className="text-[10px] font-black uppercase bg-indigo-500 text-white px-2.5 py-1.5 rounded-xl border border-indigo-400 shadow-sm leading-none shrink-0 font-mono">
-                          BUSINESS
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-black uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-xl border border-emerald-400 shadow-sm leading-none shrink-0 font-mono">
-                          PRO
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-[10px] font-black uppercase bg-orange-500 text-white px-2.5 py-1.5 rounded-xl border border-orange-400 shadow-sm leading-none shrink-0 font-mono">
-                        FREE
-                      </span>
-                    )}
-                  </div>
+                {/* Form wrapping body and sticky footer */}
+                <form onSubmit={handleSaveSettings} className="flex-1 flex flex-col min-h-0 font-sans relative">
                   
-                  <div className="space-y-4 bg-orange-50/20 p-4 rounded-xl border border-orange-100">
-                    <h4 className="text-[11px] font-bold text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
-                      <Store className="w-3.5 h-3.5 text-orange-500" />
-                      <span>व्यापार प्रोफाइल (Vyapaar Profile)</span>
-                    </h4>
+                  {/* Scrollable inputs region */}
+                  <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 pb-24">
 
-                    {/* Shop Name input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">दुकान / व्यापार का नाम (Vyapaar Name) *</label>
-                      <input
-                        type="text"
-                        required
-                        value={customShopInput}
-                        onChange={(e) => setCustomShopInput(e.target.value)}
-                        placeholder="जैसे: Verma General Store"
-                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
-                      />
-                    </div>
+                    <div className="space-y-3 bg-orange-50/20 p-3.5 rounded-xl border border-orange-100">
+                      <h4 className="text-[11px] font-bold text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
+                        <Store className="w-3.5 h-3.5 text-orange-500" />
+                        <span>व्यापार प्रोफाइल (Vyapaar Profile)</span>
+                      </h4>
 
-                    {/* Owner Name input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">मालिक का नाम (Owner Name)</label>
-                      <input
-                        type="text"
-                        value={customOwnerInput}
-                        onChange={(e) => setCustomOwnerInput(e.target.value)}
-                        placeholder="जैसे: Ramesh Verma"
-                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
-                      />
-                    </div>
-
-                    {/* Phone input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">फ़ोन नंबर (Shop Phone)</label>
-                      <input
-                        type="text"
-                        value={customShopPhoneInput}
-                        onChange={(e) => setCustomShopPhoneInput(e.target.value)}
-                        placeholder="जैसे: 9876543210"
-                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
-                      />
-                    </div>
-
-                    {/* Address input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">पता (Shop Address)</label>
-                      <textarea
-                        value={customShopAddressInput}
-                        onChange={(e) => setCustomShopAddressInput(e.target.value)}
-                        placeholder="जैसे: Shop No. 12, Main Market, New Delhi"
-                        rows={2}
-                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800 resize-none"
-                      />
-                    </div>
-
-                    {/* GSTIN input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
-                        GSTIN (GST नंबर - वैकल्पिक) 
-                        <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे 07AAAAA1111A1Z1)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={customGstinInput}
-                        onChange={(e) => setCustomGstinInput(e.target.value.toUpperCase())}
-                        placeholder="GSTIN नंबर दर्ज करें"
-                        maxLength={15}
-                        className="w-full text-xs px-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold tracking-wider text-slate-850 uppercase font-mono"
-                      />
-                    </div>
-
-                    {/* UPI ID input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
-                        UPI ID (Optional / वैकल्पिक)
-                        <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे shopname@upi, 9876543210@paytm)</span>
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
-                          <QrCode className="w-3.5 h-3.5 text-orange-500" />
-                        </span>
+                      {/* Shop Name input */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-0.5">दुकान / व्यापार का नाम (Vyapaar Name) *</label>
                         <input
                           type="text"
-                          value={customUpiInput}
-                          onChange={(e) => setCustomUpiInput(e.target.value.trim())}
-                          placeholder="जैसे: merchant@upi (Optional)"
-                          className="w-full text-xs pl-9 pr-3 py-2.5 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-mono font-bold text-slate-850"
+                          required
+                          value={customShopInput}
+                          onChange={(e) => setCustomShopInput(e.target.value)}
+                          placeholder="जैसे: Verma General Store"
+                          className="w-full text-xs px-3 py-2 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
                         />
                       </div>
-                      <p className="text-[9.5px] text-orange-700 mt-2 leading-normal font-bold">
-                        💡 Optional — only fill if you want customers to pay via UPI
-                      </p>
-                    </div>
-                  </div>
 
-                  {/* REFERRAL SYSTEM SECTION (इनवाइट और कमाएं) */}
-                  <div className="space-y-4 bg-orange-500/5 p-4 rounded-xl border border-orange-200/50">
-                    <div className="text-center space-y-1">
-                      <h4 className="text-sm font-black text-slate-900 tracking-tight flex items-center justify-center gap-1.5">
-                        <Gift className="w-4 h-4 text-orange-500 animate-bounce shrink-0" />
-                        <span>Invite Friends • Get 1 Month Pro</span>
-                      </h4>
-                      <p className="text-xs font-semibold text-slate-500">
-                        Share your referral code and unlock rewards
-                      </p>
-                    </div>
-
-                    {/* Big Orange referral code */}
-                    <div className="text-center bg-white p-4.5 rounded-xl border border-orange-100 shadow-xs space-y-2">
-                      <p className="text-[10px] text-slate-450 font-extrabold uppercase tracking-wider">Your Referral Code</p>
-                      <p className="text-3xl font-black text-orange-500 tracking-widest select-all font-sans">
-                        {referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20')}
-                      </p>
-                      <p className="text-[10.5px] text-slate-500 font-bold leading-relaxed">
-                        Earn <span className="text-orange-500 font-extrabold">1 month absolute free Pro status</span> for both you and your friend on every shop register!
-                      </p>
-                    </div>
-
-                    {/* Stats counters */}
-                    <div className="grid grid-cols-2 gap-3 text-center">
-                      <div className="bg-white/80 p-3 rounded-xl border border-orange-100 shadow-2xs">
-                        <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider leading-none mb-1.5">Total Referrals</p>
-                        <p className="text-lg font-black text-slate-800 font-sans">{totalReferrals}</p>
-                      </div>
-                      <div className="bg-white/80 p-3 rounded-xl border border-orange-100 shadow-2xs">
-                        <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider leading-none mb-1.5">Free Months</p>
-                        <p className="text-lg font-black text-orange-600 font-sans">{freeMonths}</p>
-                      </div>
-                    </div>
-
-                    {/* Share Referral button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const codeText = referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20');
-                        const shareMsg = `🧾 Dukaan ki billing ab easy!
-
-InvoicePe se:
-✅ GST invoices banao
-✅ WhatsApp pe instantly share karo
-✅ Udhaar track karo
-✅ Reports & PDF export
-
-⚡ First 30 invoices FREE
-
-👉 https://invoicepe.co.in
-
-🎁 Referral Code: ${codeText}`;
-                        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}`, '_blank');
-                      }}
-                      className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-3 border border-orange-400/20 rounded-xl font-black text-[11px] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs uppercase tracking-wider"
-                    >
-                      <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
-                      <span>Share via WhatsApp</span>
-                    </button>
-                  </div>
-
-                  {/* SECURITY SETTINGS / PASSWORD UPDATE */}
-                  <div className="space-y-4 bg-slate-900 text-white p-4 rounded-xl border border-slate-800">
-                    <h4 className="text-[11px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-                      <span>Security & Password (खाता सुरक्षा)</span>
-                    </h4>
-
-                    {settingsPassError && (
-                      <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-200 text-xs font-bold rounded-lg leading-snug">
-                        ⚠️ {settingsPassError}
-                      </div>
-                    )}
-
-                    {settingsPassSuccess && (
-                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg leading-snug">
-                        ✨ {settingsPassSuccess}
-                      </div>
-                    )}
-
-                    <div className="space-y-3">
+                      {/* Owner Name input */}
                       <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">नया पासवर्ड (New Password)</label>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-0.5">मालिक का नाम (Owner Name)</label>
                         <input
-                          type="password"
-                          value={settingsNewPassword}
-                          onChange={(e) => setSettingsNewPassword(e.target.value)}
-                          placeholder="Min 6 characters"
-                          className="w-full text-xs px-3 py-2.5 bg-slate-800 border border-slate-750 rounded-xl focus:border-orange-500 focus:outline-none transition-all placeholder:text-slate-500 font-semibold text-white"
+                          type="text"
+                          value={customOwnerInput}
+                          onChange={(e) => setCustomOwnerInput(e.target.value)}
+                          placeholder="जैसे: Ramesh Verma"
+                          className="w-full text-xs px-3 py-2 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
                         />
                       </div>
 
+                      {/* Phone input */}
                       <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">पासवर्ड की पुष्टि करें (Confirm Password)</label>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-0.5">फ़ोन नंबर (Shop Phone)</label>
                         <input
-                          type="password"
-                          value={settingsConfirmPassword}
-                          onChange={(e) => setSettingsConfirmPassword(e.target.value)}
-                          placeholder="Min 6 characters"
-                          className="w-full text-xs px-3 py-2.5 bg-slate-800 border border-slate-750 rounded-xl focus:border-orange-500 focus:outline-none transition-all placeholder:text-slate-500 font-semibold text-white"
+                          type="text"
+                          value={customShopPhoneInput}
+                          onChange={(e) => setCustomShopPhoneInput(e.target.value)}
+                          placeholder="जैसे: 9876543210"
+                          className="w-full text-xs px-3 py-2 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800"
                         />
                       </div>
 
+                      {/* Address input */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-0.5">पता (Shop Address)</label>
+                        <textarea
+                          value={customShopAddressInput}
+                          onChange={(e) => setCustomShopAddressInput(e.target.value)}
+                          placeholder="जैसे: Shop No. 12, Main Market, New Delhi"
+                          rows={2}
+                          className="w-full text-xs px-3 py-2 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-800 resize-none"
+                        />
+                      </div>
+
+                      {/* GSTIN input */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-0.5">
+                          GSTIN (GST नंबर - वैकल्पिक) 
+                          <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे 07AAAAA1111A1Z1)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={customGstinInput}
+                          onChange={(e) => setCustomGstinInput(e.target.value.toUpperCase())}
+                          placeholder="GSTIN नंबर दर्ज करें"
+                          maxLength={15}
+                          className="w-full text-xs px-3 py-2 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold tracking-wider text-slate-850 uppercase font-mono"
+                        />
+                      </div>
+
+                      {/* UPI ID input */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-600 mb-0.5">
+                          UPI ID (Optional / वैकल्पिक)
+                          <span className="text-[9px] text-slate-400 font-normal ml-1">(जैसे shopname@upi, 9876543210@paytm)</span>
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                            <QrCode className="w-3.5 h-3.5 text-orange-500" />
+                          </span>
+                          <input
+                            type="text"
+                            value={customUpiInput}
+                            onChange={(e) => setCustomUpiInput(e.target.value.trim())}
+                            placeholder="जैसे: merchant@upi (Optional)"
+                            className="w-full text-xs pl-9 pr-3 py-2 bg-white rounded-xl border border-slate-250 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-mono font-bold text-slate-850"
+                          />
+                        </div>
+                        <p className="text-[9.5px] text-orange-700 mt-1.5 leading-normal font-bold">
+                          💡 Optional — only fill if you want customers to pay via UPI
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Subscription Plan Status Card */}
+                    <div className={`p-3.5 rounded-xl border ${isPro ? (userPlan === 'business' ? 'bg-indigo-50/20 border-indigo-100 text-indigo-950' : 'bg-emerald-50/20 border-emerald-100 text-emerald-950') : 'bg-orange-55/10 border-orange-100 text-orange-950'} flex items-center justify-between`}>
+                      <div className="space-y-0.5">
+                        <p className="text-[9.5px] uppercase tracking-wider font-extrabold text-slate-400">Subscription Plan</p>
+                        {isPro ? (
+                          userPlan === 'business' ? (
+                            <p className="text-xs font-black text-indigo-650 flex items-center gap-1.5 font-mono">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                              <span>Business Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
+                            </p>
+                          ) : (
+                            <p className="text-xs font-black text-emerald-650 flex items-center gap-1.5 font-mono">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Pro Status: Active until {proUntil ? new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
+                            </p>
+                          )
+                        ) : (
+                          <p className="text-xs font-black text-orange-650 flex flex-col gap-1 font-mono">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                              <span>Free Plan</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-bold ml-3.5">
+                              Usage: {invoices.length} of 30 bills issued
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                      {isPro ? (
+                        userPlan === 'business' ? (
+                          <span className="text-[10px] font-black uppercase bg-indigo-500 text-white px-2.5 py-1.5 rounded-xl border border-indigo-400 shadow-sm leading-none shrink-0 font-mono">
+                            BUSINESS
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-black uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-xl border border-emerald-400 shadow-sm leading-none shrink-0 font-mono">
+                            PRO
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-[10px] font-black uppercase bg-orange-500 text-white px-2.5 py-1.5 rounded-xl border border-orange-400 shadow-sm leading-none shrink-0 font-mono">
+                          FREE
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Admin Panel Entry Link */}
+                    {user?.email === 'chanchaltailor404@gmail.com' && (
                       <button
                         type="button"
-                        onClick={handleChangePasswordInSettings}
-                        disabled={settingsPassSubmitting}
-                        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-750 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                        onClick={() => {
+                          setIsSettingsOpen(false);
+                          window.history.pushState({}, '', '/admin-invoicepe-secret');
+                          window.dispatchEvent(new Event('popstate'));
+                        }}
+                        className="w-full p-3.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl flex items-center justify-between text-[11px] font-black tracking-wider uppercase leading-none cursor-pointer transition-all border border-slate-800 shadow-sm"
                       >
-                        {settingsPassSubmitting ? (
-                          <>
-                            <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                            <span>Updating Password...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Key className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Change Password (पासवर्ड बदलें)</span>
-                          </>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>🔒 Open Admin Control Hub</span>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 stroke-[3]" />
+                      </button>
+                    )}
+
+                    {/* REFERRAL SYSTEM SECTION (इनवाइट और कमाएं) */}
+                    <div className="space-y-3.5 bg-orange-500/5 p-3.5 rounded-xl border border-orange-200/50">
+                      <div className="text-center space-y-0.5">
+                        <h4 className="text-sm font-black text-slate-900 tracking-tight flex items-center justify-center gap-1.5">
+                          <Gift className="w-4 h-4 text-orange-500 animate-bounce shrink-0" />
+                          <span>Invite Friends • Get 1 Month Pro</span>
+                        </h4>
+                        <p className="text-xs font-semibold text-slate-500">
+                          Share your referral code and unlock rewards
+                        </p>
+                      </div>
+
+                      {/* Big Orange referral code */}
+                      <div className="text-center bg-white p-4 rounded-xl border border-orange-100 shadow-xs space-y-1.5">
+                        <p className="text-[10px] text-slate-450 font-extrabold uppercase tracking-wider">Your Referral Code</p>
+                        <p className="text-3xl font-black text-orange-500 tracking-widest select-all font-sans">
+                          {referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20')}
+                        </p>
+                        <p className="text-[10.5px] text-slate-500 font-bold leading-relaxed">
+                          Earn <span className="text-orange-500 font-extrabold">1 month absolute free Pro status</span> for both you and your friend on every shop register!
+                        </p>
+                      </div>
+
+                      {/* Stats counters */}
+                      <div className="grid grid-cols-2 gap-3 text-center">
+                        <div className="bg-white/80 p-2.5 rounded-xl border border-orange-100 shadow-2xs">
+                          <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider leading-none mb-1">Total Referrals</p>
+                          <p className="text-lg font-black text-slate-800 font-sans">{totalReferrals}</p>
+                        </div>
+                        <div className="bg-white/80 p-2.5 rounded-xl border border-orange-100 shadow-2xs">
+                          <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider leading-none mb-1">Free Months</p>
+                          <p className="text-lg font-black text-orange-600 font-sans">{freeMonths}</p>
+                        </div>
+                      </div>
+
+                      {/* Share Referral button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const codeText = referralCode && referralCode !== 'RAMESH20' ? referralCode : (user ? generateReferralCode(user) : 'RAMESH20');
+                          const shareMsg = `🧾 Dukaan ki billing ab easy!
+  
+  InvoicePe se:
+  ✅ GST invoices banao
+  ✅ WhatsApp pe instantly share karo
+  ✅ Udhaar track karo
+  ✅ Reports & PDF export
+  
+  ⚡ First 30 invoices FREE
+  
+  👉 https://invoicepe.co.in
+  
+  🎁 Referral Code: ${codeText}`;
+                          window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}`, '_blank');
+                        }}
+                        className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-2.5 border border-orange-400/20 rounded-xl font-black text-[11px] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs uppercase tracking-wider"
+                      >
+                        <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Share via WhatsApp</span>
                       </button>
                     </div>
+
+                    {/* SECURITY SETTINGS / PASSWORD UPDATE */}
+                    <div className="space-y-3.5 bg-slate-900 text-white p-3.5 rounded-xl border border-slate-800">
+                      <h4 className="text-[11px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
+                        <span>Security & Password (खाता सुरक्षा)</span>
+                      </h4>
+
+                      {settingsPassError && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-200 text-xs font-bold rounded-lg leading-snug">
+                          ⚠️ {settingsPassError}
+                        </div>
+                      )}
+
+                      {settingsPassSuccess && (
+                        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg leading-snug">
+                          ✨ {settingsPassSuccess}
+                        </div>
+                      )}
+
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-0.5">नया पासवर्ड (New Password)</label>
+                          <input
+                            type="password"
+                            value={settingsNewPassword}
+                            onChange={(e) => setSettingsNewPassword(e.target.value)}
+                            placeholder="Min 6 characters"
+                            className="w-full text-xs px-3 py-2 bg-slate-800 border border-slate-750 rounded-xl focus:border-orange-500 focus:outline-none transition-all placeholder:text-slate-500 font-semibold text-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-0.5">पासवर्ड की पुष्टि करें (Confirm Password)</label>
+                          <input
+                            type="password"
+                            value={settingsConfirmPassword}
+                            onChange={(e) => setSettingsConfirmPassword(e.target.value)}
+                            placeholder="Min 6 characters"
+                            className="w-full text-xs px-3 py-2 bg-slate-800 border border-slate-750 rounded-xl focus:border-orange-500 focus:outline-none transition-all placeholder:text-slate-500 font-semibold text-white"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleChangePasswordInSettings}
+                          disabled={settingsPassSubmitting}
+                          className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-750 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          {settingsPassSubmitting ? (
+                            <>
+                              <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                              <span>Updating Password...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Key className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>Change Password (पासवर्ड बदलें)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
                   </div>
 
-                  {/* Submit Button */}
-                  <div className="pt-2">
+                  {/* Sticky Footer */}
+                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-slate-55 border-t border-slate-100 flex gap-2.5 z-20 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+                    <button
+                      type="button"
+                      onClick={() => setIsSettingsOpen(false)}
+                      className="flex-1 max-w-[100px] bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-[11px] uppercase tracking-wider transition-all cursor-pointer text-center border border-slate-200"
+                    >
+                      रद्द करें (Cancel)
+                    </button>
                     <button
                       type="submit"
-                      className="w-full bg-orange-500 hover:bg-orange-600 py-3.5 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md active:scale-[0.98]"
+                      className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 py-3 text-white rounded-xl font-black text-[11px] uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-orange-100 active:scale-[0.98]"
                     >
                       <Check className="w-4 h-4 stroke-[3]" />
-                      <span>सेटिंग्स सुरक्षित करें / SAVE SETTINGS</span>
+                      <span>सुरक्षित करें (Save Settings)</span>
                     </button>
                   </div>
 
