@@ -643,15 +643,24 @@ export default function App() {
 
         const { data: upsertedData, error: upsertError } = await supabase
           .from('shop_profiles')
-          .upsert(baseProfile, { onConflict: 'user_id' })
+          .upsert(baseProfile, { onConflict: 'user_id', ignoreDuplicates: true })
           .select()
           .maybeSingle();
 
         if (upsertError) {
           console.error('❌ Error upserting base shop_profile on startup:', upsertError);
-        } else if (upsertedData) {
-          console.log('✅ Base shop_profile row upserted on startup successfully:', upsertedData);
-          data = upsertedData;
+        } else {
+          if (upsertedData) {
+            console.log('✅ Base shop_profile row upserted on startup successfully:', upsertedData);
+            data = upsertedData;
+          } else {
+            const { data: refetched } = await supabase
+              .from('shop_profiles')
+              .select('*')
+              .eq('user_id', currentUser.id)
+              .maybeSingle();
+            data = refetched;
+          }
         }
       }
 
@@ -728,60 +737,24 @@ export default function App() {
 
         setReferralCode(loadedReferralCode || '');
 
-        // Resolve expiration and plan strictly to prevent auto-Pro upgrades
-        let finalProUntil = data.pro_until || null;
+        // Resolve expiration and plan strictly as a reader to prevent database overwrites
+        const finalProUntil = data.pro_until || null;
         let finalPlan = 'free';
 
         const rawPlan = data.plan || 'free';
         const planNormalized = typeof rawPlan === 'string' ? rawPlan.toLowerCase().trim() : 'free';
 
-        let isActive = false;
-        if (finalProUntil) {
-          const expiryDate = new Date(finalProUntil);
-          const today = new Date();
-          if (expiryDate > today) {
-            isActive = true;
-          } else {
-            console.warn('DEBUG [fetchShopProfileFromSupabase]: pro_until has expired. Reverting plan in DB to free.');
-            
-            const revertPayload: Record<string, any> = {};
-            if (cols.includes('plan')) revertPayload.plan = 'free';
-            if (cols.includes('pro_until')) revertPayload.pro_until = null;
-            if (cols.includes('pro_expires_at')) revertPayload.pro_expires_at = null;
-
-            if (Object.keys(revertPayload).length > 0) {
-              try {
-                await supabase
-                  .from('shop_profiles')
-                  .update(revertPayload)
-                  .eq('user_id', currentUser.id);
-              } catch (dbErr) {
-                console.error('Failed to automatically revert expired status in database:', dbErr);
-              }
-            }
-            finalProUntil = null;
-          }
-        }
-
-        // Only allow pro/business plans if they are active (not expired and have a valid expiry date)
-        if (isActive && finalProUntil) {
-          if (planNormalized === 'business') {
-            finalPlan = 'business';
-          } else if (planNormalized === 'pro') {
-            finalPlan = 'pro';
-          } else {
-            // In case plan in DB is not pro/business but pro_until is active
-            finalPlan = 'pro';
-          }
-        } else {
-          finalPlan = 'free';
+        if (planNormalized === 'business') {
+          finalPlan = 'business';
+        } else if (planNormalized === 'pro') {
+          finalPlan = 'pro';
         }
 
         setUserPlan(finalPlan);
         setProUntil(finalProUntil);
-        setProExpiresAt(finalProUntil);
+        setProExpiresAt(data.pro_expires_at || finalProUntil);
 
-        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded pro_until:', finalProUntil, 'Resolved finalPlan:', finalPlan);
+        console.log('DEBUG [fetchShopProfileFromSupabase] Loaded from Supabase - pro_until:', finalProUntil, 'Resolved finalPlan:', finalPlan);
 
         // Cache locally
         localStorage.setItem('invoicepe_shop_name', data.shop_name);
