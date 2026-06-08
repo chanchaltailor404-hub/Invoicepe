@@ -109,6 +109,29 @@ export default function App() {
     return 'free';
   });
 
+  // Discovered columns of shop_profiles list to safely update only existing columns
+  const [discoveredShopProfileFields, setDiscoveredShopProfileFields] = useState<string[] | null>(null);
+
+  const filterShopProfilePayload = (payload: Record<string, any>): Record<string, any> => {
+    if (!discoveredShopProfileFields) {
+      const fallbackCols = ['user_id', 'shop_name', 'owner_name', 'phone', 'address', 'upi_id', 'gstin'];
+      const clean: Record<string, any> = {};
+      for (const key of Object.keys(payload)) {
+        if (fallbackCols.includes(key)) {
+          clean[key] = payload[key];
+        }
+      }
+      return clean;
+    }
+    const clean: Record<string, any> = {};
+    for (const key of Object.keys(payload)) {
+      if (discoveredShopProfileFields.includes(key)) {
+        clean[key] = payload[key];
+      }
+    }
+    return clean;
+  };
+
   // Dark mode state control (Disabled: client requested pure light mode)
   const darkMode = false;
 
@@ -370,13 +393,20 @@ export default function App() {
       const today = new Date();
       const expiry = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
       
+      const payload = filterShopProfilePayload({ 
+        pro_until: expiry.toISOString(),
+        pro_expires_at: expiry.toISOString(),
+        plan: 'pro'
+      });
+
+      if (Object.keys(payload).length === 0) {
+        showToast('DB update skipped: No plan-related columns exist in the database table', 'info');
+        return;
+      }
+
       const { error } = await supabase
         .from('shop_profiles')
-        .update({ 
-          pro_until: expiry.toISOString(),
-          pro_expires_at: expiry.toISOString(),
-          plan: 'pro'
-        })
+        .update(payload)
         .eq('user_id', profile.user_id);
 
       if (error) {
@@ -402,13 +432,20 @@ export default function App() {
       const today = new Date();
       const expiry = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
       
+      const payload = filterShopProfilePayload({ 
+        pro_until: expiry.toISOString(),
+        pro_expires_at: expiry.toISOString(),
+        plan: 'business'
+      });
+
+      if (Object.keys(payload).length === 0) {
+        showToast('DB update skipped: No plan-related columns exist in the database table', 'info');
+        return;
+      }
+
       const { error } = await supabase
         .from('shop_profiles')
-        .update({ 
-          pro_until: expiry.toISOString(),
-          pro_expires_at: expiry.toISOString(),
-          plan: 'business'
-        })
+        .update(payload)
         .eq('user_id', profile.user_id);
 
       if (error) {
@@ -597,34 +634,23 @@ export default function App() {
       // If no profile exists, create a default unique one!
       if (!data) {
         console.log('No shop profile entry found on startup. Automatically upserting default empty shop profile row for user...');
-        const generatedCode = generateReferralCode(currentUser);
-        const nameForCode = currentUser.user_metadata?.owner_name || currentUser.user_metadata?.shop_name || currentUser.email?.split('@')[0] || 'MERCHANT';
         
-        const defaultProfile = {
+        const baseProfile = {
           user_id: currentUser.id,
           shop_name: currentUser.user_metadata?.shop_name || 'Verma General Store',
-          owner_name: currentUser.user_metadata?.owner_name || nameForCode,
-          phone: currentUser.user_metadata?.phone || '',
-          address: currentUser.user_metadata?.address || '',
-          upi_id: currentUser.user_metadata?.upi_id || '',
-          gstin: currentUser.user_metadata?.gstin || '',
-          referral_code: generatedCode || null,
-          email: currentUser.email,
-          plan: 'free'
+          upi_id: currentUser.user_metadata?.upi_id || ''
         };
-
-        console.log('DEBUG [startup insert]: payload =', defaultProfile);
 
         const { data: upsertedData, error: upsertError } = await supabase
           .from('shop_profiles')
-          .upsert(defaultProfile, { onConflict: 'user_id' })
+          .upsert(baseProfile, { onConflict: 'user_id' })
           .select()
           .maybeSingle();
 
         if (upsertError) {
-          console.error('❌ Error upserting default shop_profile on startup:', upsertError);
+          console.error('❌ Error upserting base shop_profile on startup:', upsertError);
         } else if (upsertedData) {
-          console.log('✅ Default empty shop_profile row upserted on startup successfully:', upsertedData);
+          console.log('✅ Base shop_profile row upserted on startup successfully:', upsertedData);
           data = upsertedData;
         }
       }
@@ -632,33 +658,52 @@ export default function App() {
       if (data) {
         console.log('Using shop profile data:', data);
 
-        // Auto-write user email back to shop_profile if missing
-        if (!data.email && currentUser.email) {
-          console.log('Writing missing user email to shop_profile:', currentUser.email);
-          try {
-            await supabase
-              .from('shop_profiles')
-              .update({ email: currentUser.email })
-              .eq('user_id', currentUser.id);
-            data.email = currentUser.email;
-          } catch (err) {
-            console.warn('Could not auto-write email to shop_profile column:', err);
-          }
+        const cols = Object.keys(data);
+        setDiscoveredShopProfileFields(cols);
+        console.log('DEBUG [Columns Discovered] shop_profiles actual available keys in DB:', cols);
+
+        const nameForCode = currentUser.user_metadata?.owner_name || currentUser.user_metadata?.shop_name || currentUser.email?.split('@')[0] || 'MERCHANT';
+
+        // Fill other initial fields dynamically if they exist & are empty
+        const updatePayload: Record<string, any> = {};
+        
+        if (cols.includes('owner_name') && !data.owner_name) {
+          updatePayload.owner_name = currentUser.user_metadata?.owner_name || nameForCode;
+        }
+        if (cols.includes('phone') && !data.phone) {
+          updatePayload.phone = currentUser.user_metadata?.phone || '';
+        }
+        if (cols.includes('address') && !data.address) {
+          updatePayload.address = currentUser.user_metadata?.address || '';
+        }
+        if (cols.includes('gstin') && !data.gstin) {
+          updatePayload.gstin = currentUser.user_metadata?.gstin || '';
+        }
+        if (cols.includes('email') && !data.email && currentUser.email) {
+          updatePayload.email = currentUser.email;
         }
         
+        // Handle referral code initialization
         let loadedReferralCode = data.referral_code;
-        if (!loadedReferralCode || loadedReferralCode === 'RAMESH20' || loadedReferralCode.trim() === '') {
-          const generatedCode = generateReferralCode(currentUser);
-          console.log('Null or default referral code found. Updating in DB to:', generatedCode);
-          
-          const { error: updateCodeErr } = await supabase
-            .from('shop_profiles')
-            .update({ referral_code: generatedCode })
-            .eq('user_id', currentUser.id);
-            
-          if (!updateCodeErr) {
+        if (cols.includes('referral_code')) {
+          if (!loadedReferralCode || loadedReferralCode === 'RAMESH20' || loadedReferralCode.trim() === '') {
+            const generatedCode = generateReferralCode(currentUser);
+            updatePayload.referral_code = generatedCode;
             loadedReferralCode = generatedCode;
-            data.referral_code = generatedCode;
+          }
+        }
+
+        if (Object.keys(updatePayload).length > 0) {
+          console.log('Syncing initial dynamic shop profile payload:', updatePayload);
+          const { data: updatedData } = await supabase
+            .from('shop_profiles')
+            .update(updatePayload)
+            .eq('user_id', currentUser.id)
+            .select()
+            .maybeSingle();
+            
+          if (updatedData) {
+            data = { ...data, ...updatedData };
           }
         }
 
@@ -698,13 +743,21 @@ export default function App() {
             isActive = true;
           } else {
             console.warn('DEBUG [fetchShopProfileFromSupabase]: pro_until has expired. Reverting plan in DB to free.');
-            try {
-              await supabase
-                .from('shop_profiles')
-                .update({ plan: 'free', pro_until: null, pro_expires_at: null })
-                .eq('user_id', currentUser.id);
-            } catch (dbErr) {
-              console.error('Failed to automatically revert expired status in database:', dbErr);
+            
+            const revertPayload: Record<string, any> = {};
+            if (cols.includes('plan')) revertPayload.plan = 'free';
+            if (cols.includes('pro_until')) revertPayload.pro_until = null;
+            if (cols.includes('pro_expires_at')) revertPayload.pro_expires_at = null;
+
+            if (Object.keys(revertPayload).length > 0) {
+              try {
+                await supabase
+                  .from('shop_profiles')
+                  .update(revertPayload)
+                  .eq('user_id', currentUser.id);
+              } catch (dbErr) {
+                console.error('Failed to automatically revert expired status in database:', dbErr);
+              }
             }
             finalProUntil = null;
           }
@@ -1033,11 +1086,46 @@ export default function App() {
         plan: referrerUserId ? 'pro' : 'free'
       };
 
-      const { data: createdProfile, error: profileErr } = await supabase
-        .from('shop_profiles')
-        .upsert(defaultProfile, { onConflict: 'user_id' })
-        .select()
-        .maybeSingle();
+      let signupProfilePayload = { ...defaultProfile };
+      let createdProfile = null;
+      let profileErr = null;
+
+      while (true) {
+        const processedPayload = filterShopProfilePayload(signupProfilePayload);
+        const { data, error } = await supabase
+          .from('shop_profiles')
+          .upsert(processedPayload, { onConflict: 'user_id' })
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist')) {
+            const match = error.message.match(/column "([^"]+)"/) || error.message.match(/column ([a-zA-Z0-9_]+) does not exist/);
+            if (match && match[1]) {
+              const brokenCol = match[1];
+              console.warn(`[Signup DB Self Healing] Column "${brokenCol}" does not exist in shop_profiles. Stripping and retrying...`);
+              if (brokenCol in signupProfilePayload) {
+                delete signupProfilePayload[brokenCol as keyof typeof signupProfilePayload];
+                continue;
+              }
+            }
+            // Generic word check fallback
+            let removed = false;
+            for (const key of Object.keys(signupProfilePayload)) {
+              if (error.message.includes(key)) {
+                console.warn(`[Signup DB Self Healing] Found key "${key}" in error message. Stripping...`);
+                delete signupProfilePayload[key as keyof typeof signupProfilePayload];
+                removed = true;
+              }
+            }
+            if (removed) continue;
+          }
+          profileErr = error;
+          break;
+        }
+        createdProfile = data;
+        break;
+      }
 
       if (profileErr) {
         console.error('Error upserting shop profile on signup:', profileErr);
@@ -1079,13 +1167,17 @@ export default function App() {
           }
           targetExpiry.setDate(targetExpiry.getDate() + 30);
 
-          await supabase
-            .from('shop_profiles')
-            .update({ 
-              pro_until: targetExpiry.toISOString(),
-              pro_expires_at: targetExpiry.toISOString() 
-            })
-            .eq('user_id', referrerUserId);
+          const updateReferrerPayload = filterShopProfilePayload({ 
+            pro_until: targetExpiry.toISOString(),
+            pro_expires_at: targetExpiry.toISOString() 
+          });
+
+          if (Object.keys(updateReferrerPayload).length > 0) {
+            await supabase
+              .from('shop_profiles')
+              .update(updateReferrerPayload)
+              .eq('user_id', referrerUserId);
+          }
         }
       }
     } catch (err) {
@@ -1156,15 +1248,18 @@ export default function App() {
 
       showToast(`Referral code "${cleanCode}" applied! 1 Month of Pro Plan activated for FREE. 🎉`, 'success');
 
-      // Update current user profile on DB to Pro with expiry
-      await supabase
-        .from('shop_profiles')
-        .update({
-          plan: 'pro',
-          pro_until: claimExpiryStr,
-          pro_expires_at: claimExpiryStr
-        })
-        .eq('user_id', user.id);
+      // Update current user profile on DB to Pro with expiry if plan-related columns exist
+      const userPayload = filterShopProfilePayload({
+        plan: 'pro',
+        pro_until: claimExpiryStr,
+        pro_expires_at: claimExpiryStr
+      });
+      if (Object.keys(userPayload).length > 0) {
+        await supabase
+          .from('shop_profiles')
+          .update(userPayload)
+          .eq('user_id', user.id);
+      }
 
       // Sync backend: Log referral record if not already exists
       const { data: existingRef } = await supabase
@@ -1200,13 +1295,17 @@ export default function App() {
         }
         targetExpiry.setDate(targetExpiry.getDate() + 30);
 
-        await supabase
-          .from('shop_profiles')
-          .update({
-            pro_until: targetExpiry.toISOString(),
-            pro_expires_at: targetExpiry.toISOString()
-          })
-          .eq('user_id', profileWithCode.user_id);
+        const referrerPayload = filterShopProfilePayload({
+          pro_until: targetExpiry.toISOString(),
+          pro_expires_at: targetExpiry.toISOString()
+        });
+
+        if (Object.keys(referrerPayload).length > 0) {
+          await supabase
+            .from('shop_profiles')
+            .update(referrerPayload)
+            .eq('user_id', profileWithCode.user_id);
+        }
       }
     } catch (err) {
       console.error('Error applying upgrade referral:', err);
@@ -1380,9 +1479,11 @@ export default function App() {
         };
         console.log('DEBUG [handleSaveSettings]: Saving shop profile payload:', payload);
 
+        const filteredPayload = filterShopProfilePayload(payload);
+
         const { error: profileErr } = await supabase
           .from('shop_profiles')
-          .upsert(payload, { onConflict: 'user_id' });
+          .upsert(filteredPayload, { onConflict: 'user_id' });
 
         if (profileErr) {
           console.error('❌ Error saving/upserting to shop_profiles table:', profileErr);
@@ -1458,20 +1559,17 @@ export default function App() {
     try {
       console.log('fetching isolated ledger data from Supabase for user_id:', currentUser.id);
       
-      let selectFields = `
+      const selectFields = `
         id,
         invoice_number,
         total_amount,
         gst_amount,
-        gst_rate,
-        gst_type,
         status,
         created_at,
         customers (
           id,
           name,
-          phone,
-          email
+          phone
         ),
         invoice_items (
           id,
@@ -1487,41 +1585,6 @@ export default function App() {
         .select(selectFields)
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
-
-      // Fallback 1: If customers.email column or GST rate/type columns do not exist
-      if (queryResult.error && (
-        queryResult.error.message.includes('email') ||
-        queryResult.error.message.includes('gst_rate') ||
-        queryResult.error.message.includes('gst_type') ||
-        queryResult.error.code === '42703'
-      )) {
-        console.warn('⚠️ Retrying query without missing customers.email or gst_rate/gst_type columns...');
-        selectFields = `
-          id,
-          invoice_number,
-          total_amount,
-          gst_amount,
-          status,
-          created_at,
-          customers (
-            id,
-            name,
-            phone
-          ),
-          invoice_items (
-            id,
-            item_name,
-            quantity,
-            rate,
-            amount
-          )
-        `;
-        queryResult = await supabase
-          .from('invoices')
-          .select(selectFields)
-          .eq('user_id', currentUser.id)
-          .order('created_at', { ascending: false });
-      }
 
       if (queryResult.error) {
         throw queryResult.error;
@@ -1541,12 +1604,10 @@ export default function App() {
             ? inv.invoice_items 
             : (inv.invoice_items ? [inv.invoice_items] : (Array.isArray(inv.items) ? inv.items : []));
 
-          // Compute safe default values for older invoices without custom rates
-          const parsedGstRate = (inv.gst_rate !== undefined && inv.gst_rate !== null) ? Number(inv.gst_rate) : 18;
-          const parsedGstType = inv.gst_type || 'exclusive';
-          const parsedGstAmount = (inv.gst_amount !== undefined && inv.gst_amount !== null && Number(inv.gst_amount) !== 0)
-            ? Number(inv.gst_amount)
-            : (parsedGstRate === 0 ? 0 : (Number(inv.total_amount) || 0) * (parsedGstRate / 100));
+          // Set safe default values as these columns don't exist in the remote table
+          const parsedGstRate = 18;
+          const parsedGstType = 'exclusive';
+          const parsedGstAmount = Number(inv.gst_amount) || 0;
 
           return {
             id: inv.id,
@@ -1998,61 +2059,17 @@ export default function App() {
       const calculatedGrandTotal = total + calculatedGstAmount;
 
       // Save invoice to Supabase with user_id & GST values
-      let insertInvErr;
-      let newInvResponse;
-
-      const { data: standardTry, error: standardErr } = await supabase
+      const { data: newInvResponse, error: insertInvErr } = await supabase
         .from('invoices')
         .insert({
           customer_id: customerId,
           invoice_number: invoiceNumber,
           total_amount: Number(calculatedGrandTotal.toFixed(2)),
           gst_amount: Number(calculatedGstAmount.toFixed(2)),
-          gst_rate: formGstRate,
-          gst_type: 'exclusive',
           status: formStatus,
           user_id: user.id
         })
         .select('id, created_at');
-
-      if (standardErr && (standardErr.message.includes('gst_type') || standardErr.code === '42703')) {
-        console.warn('⚠️ Column gst_type is missing on Supabase; trying with gst_rate only...');
-        const { data: midTry, error: midErr } = await supabase
-          .from('invoices')
-          .insert({
-            customer_id: customerId,
-            invoice_number: invoiceNumber,
-            total_amount: Number(calculatedGrandTotal.toFixed(2)),
-            gst_amount: Number(calculatedGstAmount.toFixed(2)),
-            gst_rate: formGstRate,
-            status: formStatus,
-            user_id: user.id
-          })
-          .select('id, created_at');
-          
-        if (midErr && (midErr.message.includes('gst_rate') || midErr.code === '42703')) {
-          console.warn('⚠️ Both gst_rate and gst_type represent outdated schemas; trying minimal fallback...');
-          const { data: minTry, error: minErr } = await supabase
-            .from('invoices')
-            .insert({
-              customer_id: customerId,
-              invoice_number: invoiceNumber,
-              total_amount: Number(calculatedGrandTotal.toFixed(2)),
-              gst_amount: Number(calculatedGstAmount.toFixed(2)),
-              status: formStatus,
-              user_id: user.id
-            })
-            .select('id, created_at');
-          insertInvErr = minErr;
-          newInvResponse = minTry;
-        } else {
-          insertInvErr = midErr;
-          newInvResponse = midTry;
-        }
-      } else {
-        insertInvErr = standardErr;
-        newInvResponse = standardTry;
-      }
 
       if (insertInvErr || !newInvResponse || newInvResponse.length === 0) {
         throw insertInvErr || new Error('Failed to create invoice record');
