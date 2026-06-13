@@ -146,7 +146,20 @@ export default function App() {
 
   const filterShopProfilePayload = (payload: Record<string, any>): Record<string, any> => {
     if (!discoveredShopProfileFields) {
-      const fallbackCols = ['user_id', 'shop_name', 'owner_name', 'phone', 'address', 'upi_id', 'gstin'];
+      const fallbackCols = [
+        'user_id', 
+        'shop_name', 
+        'owner_name', 
+        'phone', 
+        'address', 
+        'upi_id', 
+        'gstin', 
+        'referral_code', 
+        'pro_expires_at', 
+        'pro_until', 
+        'email', 
+        'plan'
+      ];
       const clean: Record<string, any> = {};
       for (const key of Object.keys(payload)) {
         if (fallbackCols.includes(key)) {
@@ -1193,8 +1206,23 @@ export default function App() {
   };
 
   const handleRegisterReferralAndProfile = async (newUser: any, enteredCode: string) => {
-    if (!newUser) return;
+    if (!newUser) {
+      console.warn('❌ [Profile Creation] Blocked: newUser object is stale or undefined.');
+      return;
+    }
+    console.log(`🚀 [Profile Creation] Starting registration/upsert flow for user: ${newUser.id} (${newUser.email})`);
     try {
+      // Check if profile exists already to avoid conflicting inserts
+      const { data: existingProfile, error: checkErr } = await supabase
+        .from('shop_profiles')
+        .select('*')
+        .eq('user_id', newUser.id)
+        .maybeSingle();
+
+      if (checkErr) {
+        console.warn(`⚠️ [Profile Creation Check] Error querying existing profile status:`, checkErr);
+      }
+
       let referrerUserId = null;
       const cleanCode = enteredCode.trim().toUpperCase();
       if (cleanCode) {
@@ -1206,9 +1234,9 @@ export default function App() {
 
         if (!lookupErr && profileWithCode) {
           referrerUserId = profileWithCode.user_id;
-          console.log('Valid referral code found for user_id:', referrerUserId);
+          console.log('✅ [Profile Creation] Valid referral code found for user_id:', referrerUserId);
         } else {
-          console.warn('No user found matching referral code:', cleanCode);
+          console.warn('⚠️ [Profile Creation] No user found matching referral code:', cleanCode, lookupErr);
         }
       }
 
@@ -1232,6 +1260,45 @@ export default function App() {
         email: newUser.email,
         plan: referrerUserId ? 'pro' : 'free'
       };
+
+      if (existingProfile) {
+        console.log('ℹ️ [Profile Creation] Shop profile already exists in DB for this user. Bypassing insertion/upsert failure to avoid blocking sign up.');
+        
+        // Merge missing fields
+        const updateNeeded: Record<string, any> = {};
+        if (!existingProfile.referral_code) {
+          updateNeeded.referral_code = generatedCode;
+        }
+        if (!existingProfile.email && newUser.email) {
+          updateNeeded.email = newUser.email;
+        }
+        if (!existingProfile.shop_name || existingProfile.shop_name === 'Verma General Store' || existingProfile.shop_name === 'My General Store') {
+          if (shopName.trim()) {
+            updateNeeded.shop_name = shopName.trim();
+          }
+        }
+
+        if (Object.keys(updateNeeded).length > 0) {
+          const processedUpdate = filterShopProfilePayload(updateNeeded);
+          if (Object.keys(processedUpdate).length > 0) {
+            console.log('[Profile Creation] Merging missing metadata into existing profile:', processedUpdate);
+            const { error: updErr } = await supabase
+              .from('shop_profiles')
+              .update(processedUpdate)
+              .eq('user_id', newUser.id);
+            if (updErr) {
+              console.error('❌ [Profile Creation] Existing profile metadata update failed:', updErr);
+            } else {
+              console.log('✅ [Profile Creation] Existing profile metadata synced.');
+            }
+          }
+        }
+
+        const finalCode = existingProfile.referral_code || generatedCode;
+        setReferralCode(finalCode);
+        localStorage.setItem('invoicepe_referral_code', finalCode);
+        return;
+      }
 
       let signupProfilePayload = { ...defaultProfile };
       let createdProfile = null;
@@ -1275,9 +1342,14 @@ export default function App() {
       }
 
       if (profileErr) {
-        console.error('Error upserting shop profile on signup:', profileErr);
+        console.error('❌ [Profile Creation] Error during shop_profiles record upsert on signup:', {
+          code: profileErr.code,
+          message: profileErr.message,
+          details: profileErr.details,
+          hint: profileErr.hint
+        });
       } else {
-        console.log('Successfully upserted profile for new user, setting referralCode state to:', generatedCode);
+        console.log('✅ [Profile Creation] Successfully upserted brand new user profile. Code:', generatedCode);
         setReferralCode(generatedCode);
         localStorage.setItem('invoicepe_referral_code', generatedCode);
       }
@@ -1294,9 +1366,9 @@ export default function App() {
           .insert(referralRecord);
 
         if (refError) {
-          console.error('Error logging referral record:', refError);
+          console.error('❌ [Profile Creation] Error logging referral record:', refError);
         } else {
-          console.log('Referral model logged!');
+          console.log('✅ [Profile Creation] Referral model successfully logged!');
           // Add 30 days to referrer's pro_until & pro_expires_at
           const { data: referrerProfile } = await supabase
             .from('shop_profiles')
@@ -1327,8 +1399,8 @@ export default function App() {
           }
         }
       }
-    } catch (err) {
-      console.error('Error handling post-signup logic:', err);
+    } catch (err: any) {
+      console.error('❌ [Profile Creation System Exception] Fatal exception thrown in post-signup handling:', err?.message || err);
     }
   };
 
@@ -1471,6 +1543,7 @@ export default function App() {
 
     try {
       if (authMode === 'signup') {
+        console.log('[Signup Process] Requesting user creation for email =', email);
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -1485,26 +1558,66 @@ export default function App() {
 
         if (error) throw error;
         
-        if (data.session) {
-          await handleRegisterReferralAndProfile(data.session.user, enteredReferralCode);
-          setEnteredReferralCode('');
-          setUser(data.session.user);
-          showToast('Welcome to InvoicePe! Your shop is created.', 'success');
-        } else if (data.user) {
-          await handleRegisterReferralAndProfile(data.user, enteredReferralCode);
-          setEnteredReferralCode('');
-          // Attempt automatic login to establish active session if not auto-created by signup
+        let finalSession = data.session;
+        let finalUser = data.session?.user || data.user;
+
+        // If no active session was returned by signUp, attempt an immediate signIn verify
+        if (!finalSession && finalUser) {
+          console.log('[Signup Process] No immediate session returned from signUp. Requesting credentials authentication link verification to establish active session...');
           try {
             const { data: signData, error: signErr } = await supabase.auth.signInWithPassword({ email, password });
-            if (!signErr && signData.session) {
-              setUser(signData.session.user);
+            if (!signErr && signData?.session) {
+              finalSession = signData.session;
+              finalUser = signData.session.user;
+              console.log('[Signup Process] Credentials authenticated successfully, session created!');
             } else {
-              setUser(data.user);
+              if (signErr) {
+                console.error('[Signup Process] Credentials authentication failed during signup auto-login:', signErr.message);
+              }
             }
-          } catch (_) {
-            setUser(data.user);
+          } catch (signEx) {
+            console.error('[Signup Process] Credentials authentication generated exception:', signEx);
           }
+        }
+
+        // Set session explicitly on the Supabase client to ensure auth headers are set in the client state
+        if (finalSession) {
+          console.log('[Signup Process] Explicitly writing session details inside Supabase client headers...');
+          const { error: setSessionErr } = await supabase.auth.setSession({
+            access_token: finalSession.access_token,
+            refresh_token: finalSession.refresh_token
+          });
+          if (setSessionErr) {
+            console.error('[Signup Process] setSession returned error:', setSessionErr.message);
+          }
+        }
+
+        // Wait/poll until Supabase client confirms the session is fully initialized and active in getSession
+        let initializedSession = null;
+        for (let i = 0; i < 15; i++) {
+          const { data: { session }, error: sessionCheckErr } = await supabase.auth.getSession();
+          if (session && session.user && session.user.id === finalUser?.id) {
+            initializedSession = session;
+            console.log(`[Signup Process] Session verified as active and initialized on check attempt ${i + 1}! User ID: ${session.user.id}`);
+            break;
+          }
+          if (sessionCheckErr) {
+            console.warn('[Signup Process] Waiting for session lookup, transient error info:', sessionCheckErr.message);
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        if (initializedSession && initializedSession.user) {
+          console.log('[Signup Process] Active session confirmed. Creating/updating merchant shop profile...');
+          await handleRegisterReferralAndProfile(initializedSession.user, enteredReferralCode);
+          setEnteredReferralCode('');
+          
+          // Set user state to trigger dashboard entry safely
+          setUser(initializedSession.user);
           showToast('Welcome to InvoicePe! Your shop is created.', 'success');
+        } else {
+          console.error('[Signup Process] Error: Could not establish a secure active session after signup.');
+          setAuthError('Sign up succeeded, but we could not establish a secure session block. Please use the Login option with the password you just created.');
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
