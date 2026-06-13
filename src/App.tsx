@@ -53,20 +53,24 @@ export function sanitizePhoneInput(val: string): string {
   return val.replace(/[^0-9+\-\s()]/g, '').trim();
 }
 
+export function getEmailRedirectUrl(): string {
+  // Respect production URL requirement while enabling dynamic staging/local sandbox verification redirects.
+  if (window.location.host.includes('localhost') || window.location.host.includes('run.app')) {
+    return window.location.origin;
+  }
+  return 'https://invoicepe.co.in';
+}
+
 export default function App() {
   // Supabase Auth States
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'verification_pending'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [rememberMe, setRememberMe] = useState(true);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [checkingStatus, setCheckingStatus] = useState(false);
-  const [resendingEmail, setResendingEmail] = useState(false);
-  const [verificationPendingEmail, setVerificationPendingEmail] = useState('');
-  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
   // State for shop configuration
   const [shopName, setShopName] = useState(() => localStorage.getItem('invoicepe_shop_name') || 'Verma General Store');
@@ -205,6 +209,52 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [supabaseError, setSupabaseError] = useState<string | null>(null);
 
+  // Stable active session validation helper to prevent broken state and silent API failures
+  const ensureFreshSession = async (): Promise<any> => {
+    // If the auth loading is active, wait until it resolves so we don't return null/stale unexpectedly
+    if (authLoading) {
+      console.log('ensureFreshSession: Auth is currently loading, waiting for initialization to complete...');
+      while (authLoading) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+
+    try {
+      // Validate or restore fresh active session from Supabase
+      const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+      
+      // If there's an explicit auth or missing session error, handle secure redirect or offline fallback
+      if (sessionErr || !session) {
+        console.warn('Session is invalid or has expired:', sessionErr);
+        
+        // If we are completely offline, fall back to memory-cached user safely rather than booting them out
+        if (!navigator.onLine) {
+          console.log('Merchant is currently offline. Falling back to cached memory user credentials...');
+          return user;
+        }
+
+        setUser(null);
+        localStorage.removeItem('invoicepe_plan');
+        localStorage.removeItem('invoicepe_pro_until');
+        setInvoices([]);
+        setUdhaars([]);
+        setAuthLoading(false);
+        setIsLoading(false);
+        setAuthMode('login');
+        showToast('Your session has expired. Redirecting to login...', 'info');
+        return null;
+      }
+
+      const verifiedUser = session.user;
+      setUser(verifiedUser);
+      return verifiedUser;
+    } catch (err: any) {
+      console.error('Exception verifying active credentials:', err);
+      // Fail-safe fallback
+      return user;
+    }
+  };
+
   // Filter and search state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending'>('All');
@@ -224,13 +274,6 @@ export default function App() {
     invoices: Invoice[];
   } | null>(null);
 
-  // Secure Email Verification Check: Distinguish new users requiring confirmation from legacy/existing users
-  const isUnverifiedNewUser = useMemo(() => {
-    if (!user) return false;
-    const needsVerification = user.user_metadata?.verification_required === true;
-    const isEmailConfirmed = !!user.email_confirmed_at;
-    return needsVerification && !isEmailConfirmed;
-  }, [user]);
 
   // Derived unique customers list
   const customers = useMemo(() => {
@@ -383,19 +426,103 @@ export default function App() {
 
   useEffect(() => {
     const checkHashForRecovery = () => {
-      const hash = window.location.hash;
-      if (hash && (hash.includes('type=recovery') || hash.includes('access_token=') || hash.includes('error_description='))) {
+      const hash = window.location.hash || '';
+      // Only treat as password recovery if it is type=recovery or access_token but does NOT have expired/otp errors or signup/invite/email_change confirmations
+      const isSignupOrConfirm = hash.includes('type=signup') || hash.includes('type=invite') || hash.includes('type=email_change');
+      if (hash && (hash.includes('type=recovery') || (hash.includes('access_token=') && !isSignupOrConfirm)) && !hash.includes('otp_expired')) {
         setIsResettingPassword(true);
         setCurrentPath('/forgot-password-secret');
         // Clear settings window if visible
         try {
           setIsSettingsOpen(false);
         } catch (_) {}
+      } else if (hash && hash.includes('error_description=')) {
+        // If it's a password recovery error, route it, otherwise let auth events listener below handle it
+        if (hash.toLowerCase().includes('recovery') || hash.toLowerCase().includes('password')) {
+          setIsResettingPassword(true);
+          setCurrentPath('/forgot-password-secret');
+        }
       }
     };
     checkHashForRecovery();
     window.addEventListener('hashchange', checkHashForRecovery);
     return () => window.removeEventListener('hashchange', checkHashForRecovery);
+  }, []);
+
+  useEffect(() => {
+    const handleAuthCallback = async () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      let code = searchParams.get('code');
+      if (!code && window.location.hash) {
+        const hashQueryIdx = window.location.hash.indexOf('?');
+        if (hashQueryIdx !== -1) {
+          const hashParams = new URLSearchParams(window.location.hash.substring(hashQueryIdx));
+          code = hashParams.get('code');
+        }
+      }
+
+      if (code) {
+        console.log('Detected Supabase auth code redirection, exchanging for session...');
+        setAuthLoading(true);
+        setIsLoading(true);
+        try {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error('Error exchanging code for session:', error);
+            let friendlyMsg = error.message;
+            if (friendlyMsg.toLowerCase().includes('expired') || friendlyMsg.toLowerCase().includes('invalid')) {
+              friendlyMsg = "The verification link is invalid or has expired. Please log in or request a new confirmation email.";
+            }
+            setAuthError(friendlyMsg);
+            setAuthMode('login');
+            showToast(friendlyMsg, 'info');
+          } else if (data && data.user) {
+            console.log('Code exchange successful, user verified:', data.user);
+            setUser(data.user);
+            setCurrentPath('/');
+            showToast('Email verified successfully! Welcome to InvoicePe.', 'success');
+            
+            // Clean up the URL query params entirely
+            try {
+              window.history.replaceState({}, document.title, window.location.origin + '/');
+            } catch (_) {}
+          }
+        } catch (err: any) {
+          console.error('Exception during auth code exchange:', err);
+          showToast('Verification exchange error. Please try logging in.', 'info');
+        } finally {
+          setAuthLoading(false);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    handleAuthCallback();
+  }, []);
+
+  useEffect(() => {
+    const checkHashForAuthEvents = () => {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      
+      if (
+        hash.includes('otp_expired') || 
+        search.includes('otp_expired') || 
+        hash.toLowerCase().includes('expired_token') || 
+        hash.toLowerCase().includes('hash_invalid') || 
+        hash.toLowerCase().includes('link_expired') ||
+        hash.toLowerCase().includes('token_expired')
+      ) {
+        setAuthError("The verification link has expired. Please request a new verification link.");
+        // Clear hash silently to keep the address bar clean
+        try {
+          window.location.hash = '';
+        } catch (_) {}
+      }
+    };
+    checkHashForAuthEvents();
+    window.addEventListener('hashchange', checkHashForAuthEvents);
+    return () => window.removeEventListener('hashchange', checkHashForAuthEvents);
   }, []);
 
   useEffect(() => {
@@ -881,19 +1008,21 @@ export default function App() {
   // Add Udhaar entry helper
   const handleAddUdhaar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      showToast('Kripya Login karein!', 'info');
+    setIsLoading(true);
+    const activeUser = await ensureFreshSession();
+    if (!activeUser) {
+      setIsLoading(false);
       return;
     }
     if (!udhaarCustomerName.trim() || !udhaarAmount || Number(udhaarAmount) <= 0) {
       showToast('Kripya Grahak ka Naam aur Sahi Rakam bharein!', 'info');
+      setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
     try {
       const { error } = await supabase.from('udhaar').insert({
-        user_id: user.id,
+        user_id: activeUser.id,
         customer_name: udhaarCustomerName.trim(),
         phone: udhaarPhone.trim() || 'No Mobile',
         amount: Number(udhaarAmount),
@@ -917,10 +1046,14 @@ export default function App() {
       setIsUdhaarFormOpen(false);
 
       // Refresh data
-      await fetchUdhaar(false, user);
+      await fetchUdhaar(false, activeUser);
     } catch (err: any) {
       console.error('Supabase exception inserting udhaar:', err);
-      showToast('उधार जोड़ने में समस्या आई: ' + (err.message || ''), 'info');
+      let friendlyMsg = 'उधार जोड़ने में समस्या आई। कूपर नेटवर्क जांचें!';
+      if (err?.message && !err.message.includes('insert') && !err.message.includes('row-level-security') && !err.message.includes('policy')) {
+        friendlyMsg = `उधार जोड़ने में समस्या आई: ${err.message}`;
+      }
+      showToast(friendlyMsg, 'info');
     } finally {
       setIsLoading(false);
     }
@@ -928,27 +1061,32 @@ export default function App() {
 
   // Settle / Mark Udhaar as Paid
   const handleMarkUdhaarAsPaid = async (id: string, customerName: string, amount: number) => {
-    if (!user) {
-      showToast('Kripya Login karein!', 'info');
+    setIsLoading(true);
+    const activeUser = await ensureFreshSession();
+    if (!activeUser) {
+      setIsLoading(false);
       return;
     }
-    setIsLoading(true);
     try {
       const { error } = await supabase
         .from('udhaar')
         .update({ status: 'Paid' })
         .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('user_id', activeUser.id);
 
       if (error) {
         throw error;
       }
 
       showToast(`${customerName}ji ka ₹${amount} ka udhaar paid mark kiya gaya!`, 'success');
-      await fetchUdhaar(false, user);
+      await fetchUdhaar(false, activeUser);
     } catch (err: any) {
       console.error('Supabase exception updating status:', err);
-      showToast('उधार सेटल करने में त्रुटि आई: ' + (err.message || ''), 'info');
+      let friendlyMsg = 'उधार सेटल करने में त्रुटि आई। कूपर नेटवर्क जांचें!';
+      if (err?.message && !err.message.includes('update') && !err.message.includes('row-level-security') && !err.message.includes('policy')) {
+        friendlyMsg = `उधार सेटल करने में त्रुटि आई: ${err.message}`;
+      }
+      showToast(friendlyMsg, 'info');
     } finally {
       setIsLoading(false);
     }
@@ -1337,9 +1475,10 @@ export default function App() {
           email,
           password,
           options: {
+            emailRedirectTo: getEmailRedirectUrl(),
             data: {
               shop_name: shopName.trim() || 'My General Store',
-              verification_required: true // Securely tag new signups to verify email
+              verification_required: false
             }
           }
         });
@@ -1350,17 +1489,22 @@ export default function App() {
           await handleRegisterReferralAndProfile(data.session.user, enteredReferralCode);
           setEnteredReferralCode('');
           setUser(data.session.user);
-          if (data.session.user.user_metadata?.verification_required === true && !data.session.user.email_confirmed_at) {
-            showToast('Signup successful! Verification email sent.', 'success');
-          } else {
-            showToast('Welcome to InvoicePe! Your shop is created.', 'success');
-          }
+          showToast('Welcome to InvoicePe! Your shop is created.', 'success');
         } else if (data.user) {
           await handleRegisterReferralAndProfile(data.user, enteredReferralCode);
           setEnteredReferralCode('');
-          showToast('Signup successful! Verification email sent.', 'success');
-          setVerificationPendingEmail(email);
-          setAuthMode('verification_pending');
+          // Attempt automatic login to establish active session if not auto-created by signup
+          try {
+            const { data: signData, error: signErr } = await supabase.auth.signInWithPassword({ email, password });
+            if (!signErr && signData.session) {
+              setUser(signData.session.user);
+            } else {
+              setUser(data.user);
+            }
+          } catch (_) {
+            setUser(data.user);
+          }
+          showToast('Welcome to InvoicePe! Your shop is created.', 'success');
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -1372,24 +1516,25 @@ export default function App() {
 
         if (data.user) {
           setUser(data.user);
-          // Auto clear any unconfirmed states on successful login
-          setUnconfirmedEmail(null);
           const metaShop = data.user.user_metadata?.shop_name;
           if (metaShop) {
-            setShopName(metaShop);
-            setCustomShopInput(metaShop);
+             setShopName(metaShop);
+             setCustomShopInput(metaShop);
           }
           showToast('Merchant session successfully verified!', 'success');
         }
       }
     } catch (err: any) {
-      console.error('❌ Auth error:', err);
+      console.log('Merchant auth verification response info:', err?.message || err);
       let friendlyError = err.message || 'Authentication failed. Please verify credentials.';
       const errMsg = friendlyError.toLowerCase();
       
-      if (errMsg.includes('email not confirmed')) {
-        setUnconfirmedEmail(email);
-        friendlyError = "Email not confirmed! Your new account requires email verification. Please check your email inbox to activate, or use 'Resend Link' below.";
+      if (errMsg.includes('invalid grant') || errMsg.includes('invalid credentials') || errMsg.includes('invalid_credentials')) {
+        friendlyError = "Incorrect password or email. Please verify and try again.";
+      } else if (errMsg.includes('already registered') || errMsg.includes('user already exists') || errMsg.includes('email_exists')) {
+        friendlyError = "An account with this email already exists. Please log in instead.";
+      } else if (errMsg.includes('expired_token') || errMsg.includes('otp_expired') || errMsg.includes('link_expired') || errMsg.includes('token expired') || errMsg.includes('expired')) {
+        friendlyError = "The verification link has expired. Please try signing up again or log in.";
       } else if (errMsg.includes('rate limit') || errMsg.includes('20 seconds') || errMsg.includes('too many requests')) {
         friendlyError = "Rate limit reached. Please wait a few seconds before trying again.";
       }
@@ -1496,53 +1641,56 @@ export default function App() {
 
     setIsSettingsOpen(false);
 
-    if (user) {
-      try {
-        const payload = {
-          user_id: user.id,
-          shop_name: newName,
-          owner_name: newOwnerName,
-          phone: newPhone,
-          address: newAddress,
-          upi_id: newUpi,
-          gstin: newGstin,
-          referral_code: referralCode && referralCode.trim() !== '' ? referralCode : null,
-          email: user.email
-        };
-        console.log('DEBUG [handleSaveSettings]: Saving shop profile payload:', payload);
-
-        const filteredPayload = filterShopProfilePayload(payload);
-
-        const { error: profileErr } = await supabase
-          .from('shop_profiles')
-          .upsert(filteredPayload, { onConflict: 'user_id' });
-
-        if (profileErr) {
-          console.error('❌ Error saving/upserting to shop_profiles table:', profileErr);
-          showToast('Database sync failed, saved locally: ' + profileErr.message, 'info');
-        } else {
-          console.log('✅ Shop profile table upsert complete successfully!');
-          showToast('Vyapaar settings saved and synced successfully!', 'success');
-        }
-
-        // Keep user metadata synced as fallback
-        const { error: authErr } = await supabase.auth.updateUser({
-          data: { 
+    // Dynamic session assurance to guarantee we have a fresh authenticated instance
+    ensureFreshSession().then(async (activeUser) => {
+      if (activeUser) {
+        try {
+          const payload = {
+            user_id: activeUser.id,
             shop_name: newName,
-            upi_id: newUpi,
-            gstin: newGstin,
             owner_name: newOwnerName,
             phone: newPhone,
-            address: newAddress
+            address: newAddress,
+            upi_id: newUpi,
+            gstin: newGstin,
+            referral_code: referralCode && referralCode.trim() !== '' ? referralCode : null,
+            email: activeUser.email
+          };
+          console.log('DEBUG [handleSaveSettings]: Saving shop profile payload:', payload);
+
+          const filteredPayload = filterShopProfilePayload(payload);
+
+          const { error: profileErr } = await supabase
+            .from('shop_profiles')
+            .upsert(filteredPayload, { onConflict: 'user_id' });
+
+          if (profileErr) {
+            console.error('❌ Error saving/upserting to shop_profiles table:', profileErr);
+            showToast('Database sync failed, saved locally: ' + profileErr.message, 'info');
+          } else {
+            console.log('✅ Shop profile table upsert complete successfully!');
+            showToast('Vyapaar settings saved and synced successfully!', 'success');
           }
-        });
-        if (authErr) {
-          console.error('Error syncing settings to Supabase user metadata:', authErr);
+
+          // Keep user metadata synced as fallback
+          const { error: authErr } = await supabase.auth.updateUser({
+            data: { 
+              shop_name: newName,
+              upi_id: newUpi,
+              gstin: newGstin,
+              owner_name: newOwnerName,
+              phone: newPhone,
+              address: newAddress
+            }
+          });
+          if (authErr) {
+            console.error('Error syncing settings to Supabase user metadata:', authErr);
+          }
+        } catch (err: any) {
+          console.error('Exception on handleSaveSettings:', err);
         }
-      } catch (err) {
-        console.error('Error syncing settings:', err);
       }
-    }
+    });
   };
 
   // Change Password directly from settings panel
@@ -1709,124 +1857,143 @@ export default function App() {
     }
   };
 
-  // Auth flow and sessions loading effect
+  // Auth flow and sessions loading effect with robust coordination
+  const initRef = React.useRef(false);
+
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+
     // Automatically clear stale cached plan values on app startup to guarantee fresh validation
     localStorage.removeItem('invoicepe_plan');
     localStorage.removeItem('invoicepe_pro_until');
     setUserPlan('free');
     setProUntil(null);
 
-    // 1. Initial Session Get
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.warn('Session retrieval validation error, clearing state:', error);
-        // Clear corrupt state tokens from local storage
-        Object.keys(localStorage).forEach(key => {
-          if (key.includes('-auth-token')) {
-            localStorage.removeItem(key);
+    const initializeAuthAndData = async () => {
+      setAuthLoading(true);
+      setIsLoading(true);
+      try {
+        console.log('🔄 Performing secure initial Auth state hydration...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.warn('Initial session lookup returned error, clearing token cache:', error);
+          // Safe state cleanup
+          Object.keys(localStorage).forEach(key => {
+            if (key.includes('-auth-token')) {
+              localStorage.removeItem(key);
+            }
+          });
+          setUser(null);
+          setAuthLoading(false);
+          setIsLoading(false);
+          return;
+        }
+
+        const sessionUser = session?.user ?? null;
+        if (sessionUser) {
+          console.log('✅ Initial session confirmed. Hydrating merchant environment...', sessionUser.email);
+          setUser(sessionUser);
+
+          // Configure referral code and metadata
+          const localCode = localStorage.getItem('invoicepe_referral_code');
+          if (!localCode || localCode === 'RAMESH20') {
+            const fallbackCode = generateReferralCode(sessionUser);
+            setReferralCode(fallbackCode);
+            localStorage.setItem('invoicepe_referral_code', fallbackCode);
+          } else {
+            setReferralCode(localCode);
           }
-        });
-        supabase.auth.signOut().catch(() => {});
+
+          const metaShop = sessionUser.user_metadata?.shop_name;
+          if (metaShop) {
+            setShopName(metaShop);
+            setCustomShopInput(metaShop);
+          }
+          const metaUpi = sessionUser.user_metadata?.upi_id;
+          if (metaUpi) {
+            setUpiId(metaUpi);
+            setCustomUpiInput(metaUpi);
+          }
+          const metaGstin = sessionUser.user_metadata?.gstin;
+          if (metaGstin) {
+            setGstin(metaGstin);
+            setCustomGstinInput(metaGstin);
+          }
+
+          // Hydrate user data and settings
+          await startupDatabaseTest(sessionUser);
+          
+          // Wait for all data fetches to prevent layout shift or half-loaded UI flash
+          await Promise.all([
+            fetchShopProfileFromSupabase(sessionUser),
+            fetchInvoicesFromSupabase(false, sessionUser),
+            fetchUdhaar(false, sessionUser)
+          ]).catch(e => {
+            console.error('Non-critical error loading peripheral merchant ledger data during initialization:', e);
+          });
+
+        } else {
+          console.log('ℹ️ No active session discovered during hydration. Rendering secure gateway.');
+          setUser(null);
+        }
+      } catch (err) {
+        console.error('Critical exception in secure session hydrator:', err);
+      } finally {
         setAuthLoading(false);
         setIsLoading(false);
+      }
+    };
+
+    initializeAuthAndData();
+
+    // Listen to onAuthStateChange for subsequent AUTH transitions (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(`🔑 Supabase Auth state change transition: ${event}`);
+      const sessionUser = session?.user ?? null;
+
+      if (event === 'INITIAL_SESSION') {
+        // Handled cleanly by our robust initializeAuthAndData() call above!
         return;
       }
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
-      if (sessionUser) {
-        const localCode = localStorage.getItem('invoicepe_referral_code');
-        if (!localCode || localCode === 'RAMESH20') {
-          const fallbackCode = generateReferralCode(sessionUser);
-          setReferralCode(fallbackCode);
-          localStorage.setItem('invoicepe_referral_code', fallbackCode);
-        } else {
-          setReferralCode(localCode);
-        }
 
-        const metaShop = sessionUser.user_metadata?.shop_name;
-        if (metaShop) {
-          setShopName(metaShop);
-          setCustomShopInput(metaShop);
-        }
-        const metaUpi = sessionUser.user_metadata?.upi_id;
-        if (metaUpi) {
-          setUpiId(metaUpi);
-          setCustomUpiInput(metaUpi);
-        }
-        const metaGstin = sessionUser.user_metadata?.gstin;
-        if (metaGstin) {
-          setGstin(metaGstin);
-          setCustomGstinInput(metaGstin);
-        }
-        startupDatabaseTest(sessionUser);
-        fetchShopProfileFromSupabase(sessionUser);
-        fetchInvoicesFromSupabase(true, sessionUser);
-        fetchUdhaar(true, sessionUser);
-      } else {
-        setUserPlan('free');
-        setProUntil(null);
-        localStorage.removeItem('invoicepe_plan');
-        localStorage.removeItem('invoicepe_pro_until');
-        setAuthLoading(false);
-        setIsLoading(false);
-      }
-    }).catch(async (err) => {
-      console.error('Error fetching session, clearing auth cache:', err);
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('-auth-token')) {
-          localStorage.removeItem(key);
-        }
-      });
-      try {
-        await supabase.auth.signOut();
-      } catch (e) {}
-      setAuthLoading(false);
-      setIsLoading(false);
-    });
-
-    // 2. Auth State Change Listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
-      if (sessionUser) {
-        const localCode = localStorage.getItem('invoicepe_referral_code');
-        if (!localCode || localCode === 'RAMESH20') {
-          const fallbackCode = generateReferralCode(sessionUser);
-          setReferralCode(fallbackCode);
-          localStorage.setItem('invoicepe_referral_code', fallbackCode);
-        } else {
-          setReferralCode(localCode);
-        }
-
-        const metaShop = sessionUser.user_metadata?.shop_name;
-        if (metaShop) {
-          setShopName(metaShop);
-          setCustomShopInput(metaShop);
-        }
-        const metaUpi = sessionUser.user_metadata?.upi_id;
-        if (metaUpi) {
-          setUpiId(metaUpi);
-          setCustomUpiInput(metaUpi);
-        }
-        const metaGstin = sessionUser.user_metadata?.gstin;
-        if (metaGstin) {
-          setGstin(metaGstin);
-          setCustomGstinInput(metaGstin);
-        }
-        fetchShopProfileFromSupabase(sessionUser);
-        fetchInvoicesFromSupabase(true, sessionUser);
-        fetchUdhaar(true, sessionUser);
-      } else {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
         setInvoices([]);
         setUdhaars([]);
         setUserPlan('free');
         setProUntil(null);
         localStorage.removeItem('invoicepe_plan');
         localStorage.removeItem('invoicepe_pro_until');
-        setIsLoading(false);
+        setAuthMode('login');
+        return;
       }
-      setAuthLoading(false);
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (sessionUser) {
+          setUser(sessionUser);
+
+          const metaShop = sessionUser.user_metadata?.shop_name;
+          if (metaShop) {
+            setShopName(metaShop);
+            setCustomShopInput(metaShop);
+          }
+          const metaUpi = sessionUser.user_metadata?.upi_id;
+          if (metaUpi) {
+            setUpiId(metaUpi);
+            setCustomUpiInput(metaUpi);
+          }
+          
+          setIsLoading(true);
+          await Promise.all([
+            fetchShopProfileFromSupabase(sessionUser),
+            fetchInvoicesFromSupabase(false, sessionUser),
+            fetchUdhaar(false, sessionUser)
+          ]).catch(() => {});
+          setIsLoading(false);
+        }
+      }
     });
 
     return () => {
@@ -1945,109 +2112,40 @@ export default function App() {
     };
   }, [user]);
 
-  // Seed standard dummy customers/invoices into Supabase (user isolated)
-  const handleSeedDatabase = async () => {
-    if (!user) {
-      showToast('Please log in first to seed your ledger.', 'info');
-      return;
-    }
-    setIsLoading(true);
-    try {
-      showToast('Seeding dummy data to Supabase...', 'info');
-      
-      for (const inv of INITIAL_INVOICES) {
-        // Insert customer
-        let customerId;
-        const { data: customerData, error: custErr } = await supabase
-          .from('customers')
-          .insert({ name: inv.customerName, phone: inv.customerPhone, user_id: user.id })
-          .select('id');
-        
-        if (custErr || !customerData || customerData.length === 0) {
-          // fetch existing
-          const { data: existingCust } = await supabase
-            .from('customers')
-            .select('id')
-            .eq('user_id', user.id)
-            .ilike('name', inv.customerName.trim());
-          if (existingCust && existingCust.length > 0) {
-            customerId = existingCust[0].id;
-          } else {
-            continue;
-          }
-        } else {
-          customerId = customerData[0].id;
-        }
 
-        // Insert invoice
-        const { data: invoiceData, error: invErr } = await supabase
-          .from('invoices')
-          .insert({
-            customer_id: customerId,
-            invoice_number: inv.invoiceNo,
-            total_amount: inv.totalAmount,
-            gst_amount: 0,
-            status: inv.status,
-            user_id: user.id
-          })
-          .select('id');
-
-        if (invErr || !invoiceData || invoiceData.length === 0) {
-          continue;
-        }
-        
-        const invoiceId = invoiceData[0].id;
-
-        // Insert items
-        const itemRows = inv.items.map(item => ({
-          invoice_id: invoiceId,
-          item_name: item.name,
-          quantity: item.quantity,
-          rate: item.price,
-          amount: item.quantity * item.price
-        }));
-
-        await supabase.from('invoice_items').insert(itemRows);
-      }
-      
-      showToast('Supabase seeded with 5 test books successfully!', 'success');
-      await fetchInvoicesFromSupabase(false);
-    } catch (err: any) {
-      console.error(err);
-      showToast('Seed failed: ' + err.message, 'info');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Create new invoice handler
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!user) {
-      showToast('Please log in first to create invoices.', 'info');
+    setIsLoading(true);
+    const activeUser = await ensureFreshSession();
+    if (!activeUser) {
+      setIsLoading(false);
       return;
     }
 
     if (!isPro && invoices.length >= 30) {
       setShowLimitPopup(true);
       showToast('Free plan limit reached. Upgrade to continue.', 'info');
+      setIsLoading(false);
       return;
     }
 
     // Validations
     if (!customerName.trim()) {
       showToast('Please enter customer name', 'info');
+      setIsLoading(false);
       return;
     }
 
     const invalidItems = formItems.some(i => !i.name.trim() || i.price <= 0 || !i.quantity || Number(i.quantity) < 1);
     if (invalidItems) {
       showToast('Please fill item descriptions, rate (> 0), and quantity (>= 1)', 'info');
+      setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
     try {
       const total = formItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
       const custNameTrim = sanitizeTextInput(customerName);
@@ -2058,7 +2156,7 @@ export default function App() {
       const { data: existingCustomers, error: findError } = await supabase
         .from('customers')
         .select('id, name, phone')
-        .eq('user_id', user.id)
+        .eq('user_id', activeUser.id)
         .ilike('name', custNameTrim);
          
       if (existingCustomers && existingCustomers.length > 0) {
@@ -2074,7 +2172,7 @@ export default function App() {
       } else {
         const { data: newCustomer, error: insertCustErr } = await supabase
           .from('customers')
-          .insert({ name: custNameTrim, phone: custPhoneTrim, user_id: user.id })
+          .insert({ name: custNameTrim, phone: custPhoneTrim, user_id: activeUser.id })
           .select('id');
           
         if (insertCustErr || !newCustomer || newCustomer.length === 0) {
@@ -2099,7 +2197,7 @@ export default function App() {
           total_amount: Number(calculatedGrandTotal.toFixed(2)),
           gst_amount: Number(calculatedGstAmount.toFixed(2)),
           status: formStatus,
-          user_id: user.id
+          user_id: activeUser.id
         })
         .select('id, created_at');
 
@@ -2159,11 +2257,15 @@ export default function App() {
       setFormGstType('exclusive');
       setFormStatus('Paid');
 
-      await fetchInvoicesFromSupabase(false);
+      await fetchInvoicesFromSupabase(false, activeUser);
 
     } catch (err: any) {
       console.error(err);
-      showToast(`Failed to create invoice: ${err.message}`, 'info');
+      let friendlyMsg = 'Failed to create invoice. Please check your network or session validity.';
+      if (err?.message && !err.message.includes('insert') && !err.message.includes('row-level-security') && !err.message.includes('policy')) {
+        friendlyMsg = `Failed to create invoice: ${err.message}`;
+      }
+      showToast(friendlyMsg, 'info');
     } finally {
       setIsLoading(false);
     }
@@ -3052,7 +3154,7 @@ Powered by InvoicePe 🧾`;
       setResetMessage(null);
       try {
         const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-          redirectTo: window.location.origin + '/#forgot-password-secret'
+          redirectTo: getEmailRedirectUrl() + '/#forgot-password-secret'
         });
         if (error) {
           setResetMessage({ text: error.message, type: 'error' });
@@ -3598,270 +3700,133 @@ Powered by InvoicePe 🧾`;
               </div>
             </div>
 
-            {/* Custom notifications during auth */}
-            <AnimatePresence>
-              {notification && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="p-3 bg-neutral-950 text-white rounded-xl text-xs font-bold font-mono text-center flex items-center justify-center gap-2 shadow-md"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping"></span>
-                  <span>{notification.message}</span>
-                </motion.div>
+            {/* Form */}
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
+              {authMode === 'signup' && (
+                <div className="space-y-1 animate-fadeIn">
+                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Merchant Shop Name</label>
+                  <input
+                    type="text"
+                    value={shopName}
+                    onChange={(e) => {
+                      setShopName(e.target.value);
+                      setCustomShopInput(e.target.value);
+                    }}
+                    placeholder="e.g. Verma General Store"
+                    required
+                    className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                  />
+                </div>
               )}
-            </AnimatePresence>
 
-            {authMode === 'verification_pending' ? (
-              <div className="space-y-4 p-5 bg-white rounded-2xl border border-orange-100 shadow-sm text-center animate-fadeIn">
-                <div className="mx-auto w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-xl">
-                  ✉️
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Verify Your Merchant Account</h3>
-                  <p className="text-[11px] font-semibold text-slate-500 leading-relaxed">
-                    A secure activation link has been sent to your email. Check your inbox to activate your digital ledger book!
-                  </p>
-                </div>
-
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-widest mb-1 leading-none">Registered Email</span>
-                  <span className="text-xs font-bold text-slate-800 font-mono break-all leading-normal block">{verificationPendingEmail}</span>
-                </div>
-
-                {resendingEmail && (
-                  <div className="flex items-center justify-center gap-1.5 py-1">
-                    <div className="w-4 h-4 rounded-full border-2 border-orange-500 border-t-transparent animate-spin"></div>
-                    <span className="text-[10px] font-black uppercase text-orange-600 animate-pulse tracking-widest">Resending Code...</span>
-                  </div>
-                )}
-
-                <div className="space-y-2 pt-2">
-                  <button
-                    type="button"
-                    disabled={resendingEmail}
-                    onClick={async () => {
-                      setResendingEmail(true);
-                      try {
-                        const { error } = await supabase.auth.resend({
-                          type: 'signup',
-                          email: verificationPendingEmail,
-                          options: {
-                            emailRedirectTo: window.location.origin
-                          }
-                        });
-                        if (error) {
-                          showToast("Error: " + error.message, "info");
-                        } else {
-                          showToast("Verification link resent successfully!", "success");
-                        }
-                      } catch (err: any) {
-                        showToast("Could not resend link.", "info");
-                      } finally {
-                        setResendingEmail(false);
-                      }
-                    }}
-                    className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-extrabold text-[11px] tracking-wider uppercase transition-all shadow-md active:scale-95 cursor-pointer leading-none"
-                  >
-                    Resend Verification Link
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthMode('login');
-                      setAuthError(null);
-                      setUnconfirmedEmail(null);
-                    }}
-                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-[11px] uppercase tracking-wider transition-all border border-slate-200 cursor-pointer block text-center"
-                  >
-                    Back to Merchant Login
-                  </button>
-                </div>
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Email Address</label>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="name@store.com"
+                  required
+                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                />
               </div>
-            ) : (
-              <>
-                {/* Form */}
-                <form onSubmit={handleAuthSubmit} className="space-y-4">
-                  {authMode === 'signup' && (
-                    <div className="space-y-1 animate-fadeIn">
-                      <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Merchant Shop Name</label>
-                      <input
-                        type="text"
-                        value={shopName}
-                        onChange={(e) => {
-                          setShopName(e.target.value);
-                          setCustomShopInput(e.target.value);
-                        }}
-                        placeholder="e.g. Verma General Store"
-                        required
-                        className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
-                      />
-                    </div>
-                  )}
 
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Email Address</label>
-                    <input
-                      type="email"
-                      value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
-                      placeholder="name@store.com"
-                      required
-                      className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
-                    />
-                  </div>
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Security Password</label>
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="Min 6 characters"
+                  required
+                  minLength={6}
+                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                />
+              </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Security Password</label>
-                    <input
-                      type="password"
-                      value={authPassword}
-                      onChange={(e) => setAuthPassword(e.target.value)}
-                      placeholder="Min 6 characters"
-                      required
-                      minLength={6}
-                      className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
-                    />
-                  </div>
+              {authMode === 'signup' && (
+                <div className="space-y-1 animate-fadeIn">
+                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Have a referral code? Enter here (optional)</label>
+                  <input
+                    type="text"
+                    value={enteredReferralCode}
+                    onChange={(e) => setEnteredReferralCode(e.target.value.trim().toUpperCase())}
+                    placeholder="e.g. RAMESH20"
+                    className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm uppercase font-mono placeholder:font-sans placeholder:normal-case"
+                  />
+                </div>
+              )}
 
-                  {authMode === 'signup' && (
-                    <div className="space-y-1 animate-fadeIn">
-                      <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Have a referral code? Enter here (optional)</label>
-                      <input
-                        type="text"
-                        value={enteredReferralCode}
-                        onChange={(e) => setEnteredReferralCode(e.target.value.trim().toUpperCase())}
-                        placeholder="e.g. RAMESH20"
-                        className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm uppercase font-mono placeholder:font-sans placeholder:normal-case"
-                      />
-                    </div>
-                  )}
-
-                  {/* Remember Me box & Help */}
-                  <div className="flex items-center justify-between pt-1 select-none">
-                    <label className="flex items-center gap-2 cursor-pointer font-bold text-[10.5px] text-slate-500">
-                      <input
-                        type="checkbox"
-                        checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
-                      />
-                      <span>Remember me</span>
-                    </label>
-                    {authMode === 'login' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.location.hash = 'forgot-password-secret';
-                          window.dispatchEvent(new Event('hashchange'));
-                        }}
-                        className="text-[10.5px] font-black text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
-                      >
-                        Forgot Lock?
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Submit Error */}
-                  {authError && (
-                    <div className="p-3.5 bg-red-50 border border-red-100 rounded-xl flex flex-col gap-1.5 text-[10.5px] font-bold text-red-700 leading-snug">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                        <span>{authError.split('💡')[0]}</span>
-                      </div>
-                      {authError.includes('💡') && (
-                        <div className="mt-1 bg-amber-500/15 border border-amber-500/20 text-amber-900 rounded-lg p-2.5 font-bold space-y-1">
-                          <p className="flex items-center gap-1 text-[9.5px] text-amber-850 uppercase tracking-widest font-extrabold">
-                            <span>💡 Developer Solution</span>
-                          </p>
-                          <p className="text-[10px] text-slate-700 font-semibold leading-relaxed">
-                            {authError.substring(authError.indexOf('💡') + 1).replace('TIP:', '').replace('Tip:', '').trim()}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Resend button for unconfirmed login attempts */}
-                  {unconfirmedEmail && (
-                    <div className="p-3.5 bg-orange-50 border border-orange-100 rounded-xl space-y-2 text-center">
-                      <p className="text-[10.5px] font-bold text-slate-600 leading-snug">
-                        New Account requires activation. Resend secure verification link to <span className="font-mono text-slate-800 break-all">{unconfirmedEmail}</span>?
-                      </p>
-                      <button
-                        type="button"
-                        disabled={resendingEmail}
-                        onClick={async () => {
-                          setResendingEmail(true);
-                          try {
-                            const { error } = await supabase.auth.resend({
-                              type: 'signup',
-                              email: unconfirmedEmail,
-                              options: {
-                                emailRedirectTo: window.location.origin
-                              }
-                            });
-                            if (error) {
-                              showToast("Error: " + error.message, "info");
-                            } else {
-                              showToast("Verification link sent successfully! Check inbox.", "success");
-                              setUnconfirmedEmail(null);
-                            }
-                          } catch (err: any) {
-                            showToast("Could not resend email.", "info");
-                          } finally {
-                            setResendingEmail(false);
-                          }
-                        }}
-                        className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-extrabold text-[10px] tracking-widest uppercase py-2.5 rounded-xl transition-all shadow-sm cursor-pointer"
-                      >
-                        {resendingEmail ? "Sending Code..." : "Resend Verification Link"}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Action Button */}
-                  <button
-                    type="submit"
-                    disabled={authSubmitting}
-                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-extrabold text-xs shadow-md shadow-orange-100 uppercase tracking-widest transition-all cursor-pointer"
-                  >
-                    {authSubmitting ? (
-                      <>
-                        <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                        <span>Processing Session...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>{authMode === 'login' ? 'Proceed to Ledger Book' : 'Register Shop & Start Book'}</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
-                </form>
-
-                {/* Toggle Login vs SignUp option */}
-                <div className="text-center pt-2">
+              {/* Remember Me box & Help */}
+              <div className="flex items-center justify-between pt-1 select-none">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-[10.5px] text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
+                  />
+                  <span>Remember me</span>
+                </label>
+                {authMode === 'login' && (
                   <button
                     type="button"
                     onClick={() => {
-                      setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                      setAuthError(null);
-                      setUnconfirmedEmail(null);
+                      window.location.hash = 'forgot-password-secret';
+                      window.dispatchEvent(new Event('hashchange'));
                     }}
-                    className="text-[11px] font-extrabold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
+                    className="text-[10.5px] font-black text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
                   >
-                    {authMode === 'login' ? (
-                      <>Don't have an account? <span className="text-orange-500 underline ml-1">Create Shop Signup</span></>
-                    ) : (
-                      <>Already registered merchant? <span className="text-orange-500 underline ml-1">Log In Here</span></>
-                    )}
+                    Forgot Lock?
                   </button>
+                )}
+              </div>
+
+              {/* Submit Error */}
+              {authError && (
+                <div className="p-3.5 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-[10.5px] font-bold text-red-700 leading-snug">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <span>{authError.split('💡')[0]}</span>
                 </div>
-              </>
-            )}
+              )}
+
+              {/* Action Button */}
+              <button
+                type="submit"
+                disabled={authSubmitting}
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-extrabold text-xs shadow-md shadow-orange-100 uppercase tracking-widest transition-all cursor-pointer"
+              >
+                {authSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                    <span>Processing Session...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{authMode === 'login' ? 'Proceed to Ledger Book' : 'Register Shop & Start Book'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Toggle Login vs SignUp option */}
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'signup' : 'login');
+                  setAuthError(null);
+                }}
+                className="text-[11px] font-extrabold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
+              >
+                {authMode === 'login' ? (
+                  <>Don't have an account? <span className="text-orange-500 underline ml-1">Create Shop Signup</span></>
+                ) : (
+                  <>Already registered merchant? <span className="text-orange-500 underline ml-1">Log In Here</span></>
+                )}
+              </button>
+            </div>
 
             {/* HOMEPAGE TRUST SECTION */}
             <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100 flex flex-col gap-2.5 shadow-2xs">
@@ -3881,155 +3846,6 @@ Powered by InvoicePe 🧾`;
                 <div className="flex items-center gap-2">
                   <span className="text-sm">⚡</span>
                   <span>Fast & Easy to Use</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer lock and trust notation */}
-          <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest -mx-6 -mb-6 bg-slate-50">
-            <p>🔒 AES-256 Bit Supabase Encrypted Ledger</p>
-            <p>© 2026 InvoicePe App. All customer data saved securely.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isUnverifiedNewUser) {
-    return (
-      <div id="unverified-portal-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
-          
-          {/* Top Status Accent */}
-          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/50 -mx-6 -mt-6">
-            <span>SECURE INVOICEPE PORTAL</span>
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-              <span>VERIFICATION REQUIRED</span>
-            </div>
-          </div>
-
-          <div className="flex-1 flex flex-col justify-center py-6 space-y-6">
-            {/* Branding Header */}
-            <div className="text-center space-y-3">
-              <div className="mx-auto w-14 h-14 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-lg shadow-orange-200/80">
-                I
-              </div>
-              <div className="space-y-1 pt-1">
-                <h1 className="text-2xl font-display font-black text-slate-900 tracking-tight leading-none">
-                  Invoice<span className="text-orange-500">Pe</span>
-                </h1>
-                <p className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-widest leading-none mt-1">
-                  SECURE EMAIL CONFIRMATION
-                </p>
-              </div>
-            </div>
-
-            {/* Verification card */}
-            <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm space-y-4">
-              <div className="text-center space-y-1">
-                <div className="text-3xl">✉️</div>
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Confirm Your Email Address</h3>
-                <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-                  We sent a secure activation link to verify your shop registrar credentials.
-                </p>
-              </div>
-
-              {/* Email Address box */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-widest leading-none mb-1">Registered Email</span>
-                <span className="text-xs font-bold text-slate-850 font-mono break-all">{user.email}</span>
-              </div>
-
-              {/* Loader during check/resend */}
-              {(checkingStatus || resendingEmail) && (
-                <div className="flex items-center justify-center gap-2 py-1">
-                  <div className="w-4 h-4 rounded-full border-2 border-orange-500 border-t-transparent animate-spin"></div>
-                  <span className="text-[11px] font-black tracking-widest uppercase text-orange-600 animate-pulse">
-                    {checkingStatus ? "Checking inbox link..." : "Resending code..."}
-                  </span>
-                </div>
-              )}
-
-              {/* Dynamic instruction notes */}
-              <div className="bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 text-[10.5px] font-semibold text-slate-600 leading-relaxed space-y-1.5">
-                <p className="text-orange-650 font-black text-[9.5px] uppercase tracking-wider flex items-center gap-1 leading-none">
-                  <span>💡 Complete configuration:</span>
-                </p>
-                <ul className="list-disc pl-4 space-y-1 text-slate-500">
-                  <li>Open your email inbox, check for verification mail from InvoicePe or Supabase.</li>
-                  <li>Click the secure confirm link to instantly enable full GST & Udhaar book access.</li>
-                  <li>Don't see it? Please check your <strong>Spam/Junk folder</strong>.</li>
-                </ul>
-              </div>
-
-              {/* Actions */}
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  disabled={checkingStatus || resendingEmail}
-                  onClick={async () => {
-                    setCheckingStatus(true);
-                    try {
-                      const { data: { user: updatedUser }, error } = await supabase.auth.getUser();
-                      if (error) {
-                        showToast("Failed to refresh: " + error.message, "info");
-                      } else if (updatedUser) {
-                        setUser(updatedUser);
-                        if (updatedUser.email_confirmed_at) {
-                          showToast("Email verified successfully! Welcome.", "success");
-                        } else {
-                          showToast("Confirmation is still pending. Tap link in your inbox first!", "info");
-                        }
-                      }
-                    } catch (err: any) {
-                      showToast("Connection check error.", "info");
-                    } finally {
-                      setCheckingStatus(false);
-                    }
-                  }}
-                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 text-white py-3 rounded-xl font-extrabold text-[11px] tracking-wider uppercase transition-all cursor-pointer text-center shadow-md active:scale-95"
-                >
-                  Verify Link Clicked (I clicked it)
-                </button>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    disabled={checkingStatus || resendingEmail}
-                    onClick={async () => {
-                      setResendingEmail(true);
-                      try {
-                        const { error } = await supabase.auth.resend({
-                          type: 'signup',
-                          email: user.email,
-                          options: {
-                            emailRedirectTo: window.location.origin
-                          }
-                        });
-                        if (error) {
-                          showToast("Error: " + error.message, "info");
-                        } else {
-                          showToast("Verification email resent!", "success");
-                        }
-                      } catch (err: any) {
-                        showToast("Failed to resend confirmation.", "info");
-                      } finally {
-                        setResendingEmail(false);
-                      }
-                    }}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer text-center border border-slate-250"
-                  >
-                    Resend Email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer text-center"
-                  >
-                    Log Out
-                  </button>
                 </div>
               </div>
             </div>
@@ -4203,64 +4019,7 @@ Powered by InvoicePe 🧾`;
         {/* MAIN BODY SCROLLABLE AREA */}
         <main className="flex-1 px-5 py-5 space-y-5 pb-28 overflow-y-auto">
 
-        {supabaseError && (
-          <div className="bg-red-50/50 border border-red-100 rounded-2xl p-5 space-y-4 shadow-sm text-center">
-            <div className="bg-red-100 text-red-600 w-10 h-10 rounded-full flex items-center justify-center mx-auto">
-              <AlertCircle className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="font-bold text-sm text-red-950">Supabase Table Sync Pending</h3>
-              <p className="text-[10px] text-red-700 leading-normal font-medium">
-                Please create these 3 tables in your Supabase project (SQL Editor).
-              </p>
-            </div>
-            
-            <pre className="bg-zinc-900 text-white text-[8px] rounded-xl p-3 text-left max-h-[140px] overflow-y-auto font-mono select-all select-text">
-{`CREATE TABLE customers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    phone TEXT NOT NULL DEFAULT 'No Mobile',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
-CREATE TABLE invoices (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
-    invoice_number TEXT NOT NULL,
-    total_amount NUMERIC NOT NULL DEFAULT 0,
-    gst_amount NUMERIC NOT NULL DEFAULT 0,
-    status TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE invoice_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    invoice_id UUID REFERENCES invoices(id) ON DELETE CASCADE,
-    item_name TEXT NOT NULL,
-    quantity NUMERIC NOT NULL,
-    rate NUMERIC NOT NULL,
-    amount NUMERIC NOT NULL
-);`}
-            </pre>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => fetchInvoicesFromSupabase()}
-                className="flex-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 py-2 rounded-xl text-[10px] font-extrabold shadow-sm transition-colors cursor-pointer uppercase tracking-wider"
-              >
-                Retry Setup
-              </button>
-              <button
-                type="button"
-                onClick={handleSeedDatabase}
-                className="flex-1 bg-orange-500 hover:bg-orange-650 text-white py-2 rounded-xl text-[10px] font-extrabold shadow-sm transition-colors cursor-pointer uppercase tracking-wider"
-              >
-                Seed Local DB
-              </button>
-            </div>
-          </div>
-        )}
 
         {activeView === 'dashboard' && (
           <motion.div
