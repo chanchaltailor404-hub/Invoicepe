@@ -438,7 +438,7 @@ export default function App() {
   }, [user, currentPath]);
 
   useEffect(() => {
-    const checkHashForRecovery = () => {
+    const checkHashForRecovery = async () => {
       const hash = window.location.hash || '';
       // Only treat as password recovery if it is type=recovery or access_token but does NOT have expired/otp errors or signup/invite/email_change confirmations
       const isSignupOrConfirm = hash.includes('type=signup') || hash.includes('type=invite') || hash.includes('type=email_change');
@@ -449,6 +449,28 @@ export default function App() {
         try {
           setIsSettingsOpen(false);
         } catch (_) {}
+
+        // Automatically set the Supabase session from URL hash tokens if found
+        try {
+          const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
+          const params = new URLSearchParams(cleanHash);
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+          if (accessToken) {
+            console.log('Automatically setting Supabase session from URL hash...');
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken || '',
+            });
+            if (error) {
+              console.error('Error setting session from URL hash:', error);
+            } else {
+              console.log('Session successfully established from URL hash!');
+            }
+          }
+        } catch (e) {
+          console.error('Exception setting session from URL hash:', e);
+        }
       } else if (hash && hash.includes('error_description=')) {
         // If it's a password recovery error, route it, otherwise let auth events listener below handle it
         if (hash.toLowerCase().includes('recovery') || hash.toLowerCase().includes('password')) {
@@ -3325,50 +3347,6 @@ Powered by InvoicePe 🧾`;
       }
     };
 
-    const handleProcessPastedUrl = async (inputVal: string) => {
-      setPastedResetUrl(inputVal);
-      setPastedResetError(null);
-      if (!inputVal) return;
-
-      try {
-        let queryString = '';
-        if (inputVal.includes('#')) {
-          queryString = inputVal.split('#')[1];
-        } else if (inputVal.includes('?')) {
-          queryString = inputVal.split('?')[1];
-        } else {
-          queryString = inputVal;
-        }
-
-        const params = new URLSearchParams(queryString);
-        const accessToken = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-
-        if (!accessToken) {
-          setPastedResetError('Could not find access_token. Make sure to copy the ENTIRE address bar URL.');
-          return;
-        }
-
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken || '',
-        });
-
-        if (error) {
-          setPastedResetError(`Supabase Session Error: ${error.message}`);
-        } else {
-          setIsResettingPassword(true);
-          setResetMessage({
-            text: '🎉 Session authorized with Supabase via pasted fragment! Create your new password below.',
-            type: 'success'
-          });
-          showToast('Session authorized successfully!', 'success');
-        }
-      } catch (err: any) {
-        setPastedResetError(err.message || 'Error parsing pasted URL details.');
-      }
-    };
-
     return (
       <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
         <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
@@ -3413,43 +3391,19 @@ Powered by InvoicePe 🧾`;
             )}
 
             {!isResettingPassword ? (
-              // STEP 1 & 2 COMBINED FOR MAXIMUM Simplicity
               <div className="space-y-5">
-                {/* Visual Step Tracker card */}
-                <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm space-y-4">
-                  <h3 className="text-xs font-black text-slate-800 border-b border-slate-150 pb-2 uppercase tracking-wider">
-                    Easy 2-Step Recovery / 2 आसान चरण:
+                {/* Visual Instructions Card */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm space-y-2">
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                    Password Reset Instructions / पासवर्ड रीसेट निर्देश:
                   </h3>
-                  
-                  {/* Step 1 */}
-                  <div className="space-y-1">
-                    <div className="flex items-start gap-2.5">
-                      <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5">1</span>
-                      <div>
-                        <h4 className="text-[11.5px] font-black text-slate-900">Request Email / ईमेल भेजें</h4>
-                        <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
-                          Enter email and press <strong>Send Link</strong>. You will get an email from Supabase.
-                          <br />
-                          अपना ईमेल लिखकर <strong>"Send Reset Link"</strong> बटन दबाएं। आपको ईमेल प्राप्त होगा।
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Step 2 */}
-                  <div className="space-y-1 border-t border-slate-100 pt-3">
-                    <div className="flex items-start gap-2.5">
-                      <span className="w-5 h-5 rounded-full bg-amber-500 text-white font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5">2</span>
-                      <div>
-                        <h4 className="text-[11.5px] font-black text-slate-900">Copy & Paste Link / लिंक कॉपी-पेस्ट करें</h4>
-                        <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
-                          Click that email link. If it opens a broken <strong className="text-orange-600">localhost:3000</strong> page, <strong>don't worry!</strong> Just copy that entire address/URL from your web browser and paste it in the box below!
-                          <br />
-                          ईमेल लिंक खोलें। यदि "localhost" एरर आए, तो घबराएं नहीं! बस अपनी एड्रेस बार का पूरा लिंक कॉपी करें और नीचे पेस्ट करें।
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                    Enter your registered email address and press <strong>Send Reset Link</strong>. 
+                    We will send a secure link to your email. Clicking that link will automatically 
+                    and securely return you here to enter your new password.
+                    <br />
+                    अपना ईमेल लिखकर <strong>"Send Reset Link"</strong> दबाएं। आपको ईमेल पर सुरक्षित लिंक मिलेगा, जिसे खोलते ही आप सीधे नया पासवर्ड सेट कर पाएंगे।
+                  </p>
                 </div>
 
                 {/* Submit Email Form */}
@@ -3486,27 +3440,6 @@ Powered by InvoicePe 🧾`;
                     )}
                   </button>
                 </form>
-
-                {/* Paste URL Box */}
-                <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/60 space-y-2.5 shadow-sm">
-                  <h3 className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="text-sm">📥</span>
-                    <span>Paste Email Reset Link Here / लिंक यहाँ पेस्ट करें:</span>
-                  </h3>
-                  <input
-                    type="text"
-                    className="w-full text-[10.5px] px-3.5 py-3 bg-white border border-amber-200 rounded-xl focus:border-orange-550 focus:outline-none font-mono text-slate-800 placeholder:text-slate-400 border-dashed"
-                    placeholder="e.g. http://localhost:3000/#access_token=..."
-                    value={pastedResetUrl}
-                    onChange={(e) => handleProcessPastedUrl(e.target.value)}
-                  />
-                  {pastedResetError && (
-                    <p className="text-[9.5px] font-bold text-red-600 block bg-red-50 p-2 rounded-lg border border-red-100">❌ {pastedResetError}</p>
-                  )}
-                  <p className="text-[9px] text-amber-800/80 font-bold leading-normal">
-                    💡 Directly pasting the link you got via email (even if "localhost:3000" didn't load) unlocks your page instantly!
-                  </p>
-                </div>
               </div>
             ) : (
               // STEP 3: Token verified, show password update boxes
@@ -3547,7 +3480,7 @@ Powered by InvoicePe 🧾`;
                 <button
                   type="submit"
                   disabled={resetSubmitting}
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-330 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
                 >
                   {resetSubmitting ? (
                     <>
@@ -3563,19 +3496,6 @@ Powered by InvoicePe 🧾`;
                 </button>
               </form>
             )}
-
-            <div className="text-center pt-1 pb-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsResettingPassword(!isResettingPassword);
-                  setResetMessage(null);
-                }}
-                className="text-[10px] font-black text-slate-400 hover:text-orange-500 tracking-wider uppercase bg-transparent border-0 cursor-pointer"
-              >
-                {!isResettingPassword ? "No email access but have the redirect code?" : "Go back to request reset email"}
-              </button>
-            </div>
           </div>
 
           {/* Footer lock and trust notation */}

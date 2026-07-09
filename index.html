@@ -2,6 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Force unregister Service Worker in development to prevent caching/MIME-type deadlocks
+      if ('serviceWorker' in navigator) {
+        const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('run.app');
+        if (isDev) {
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            let unregistered = false;
+            for (const registration of registrations) {
+              registration.unregister();
+              console.log('[Dev] Unregistered active ServiceWorker:', registration.scope);
+              unregistered = true;
+            }
+            if (unregistered) {
+              console.log('[Dev] Service Worker was active and unregistered. Reloading page...');
+              window.location.reload();
+            }
+          });
+        }
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>InvoicePe - Simple GST Billing for Indian Shops</title>
     <meta name="description" content="Create GST invoices, manage udhaar, share bills on WhatsApp and grow your business with InvoicePe." />
