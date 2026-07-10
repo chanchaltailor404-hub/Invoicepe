@@ -72,6 +72,16 @@ export default function App() {
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Local states for Profile Completion Form (specifically for Google Onboarding)
+  const [completionShopName, setCompletionShopName] = useState('');
+  const [completionOwnerName, setCompletionOwnerName] = useState('');
+  const [completionPhone, setCompletionPhone] = useState('');
+  const [completionUpi, setCompletionUpi] = useState('');
+  const [completionGstin, setCompletionGstin] = useState('');
+  const [completionNoGstin, setCompletionNoGstin] = useState(false);
+  const [completionSubmitting, setCompletionSubmitting] = useState(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+
   // State for shop configuration
   const [shopName, setShopName] = useState(() => localStorage.getItem('invoicepe_shop_name') || 'Verma General Store');
   const [isEditingShop, setIsEditingShop] = useState(false);
@@ -143,6 +153,18 @@ export default function App() {
 
   // Discovered columns of shop_profiles list to safely update only existing columns
   const [discoveredShopProfileFields, setDiscoveredShopProfileFields] = useState<string[] | null>(null);
+
+  // Synchronize profile completion states with loaded shop profile values
+  useEffect(() => {
+    if (user) {
+      setCompletionShopName(shopName === 'Verma General Store' || shopName === 'My General Store' ? '' : shopName);
+      setCompletionOwnerName(ownerName);
+      setCompletionPhone(shopPhone);
+      setCompletionUpi(upiId);
+      setCompletionGstin(gstin === 'NA' || gstin === 'URP' ? '' : gstin);
+      setCompletionNoGstin(gstin === 'NA' || gstin === 'URP');
+    }
+  }, [user, shopName, ownerName, shopPhone, upiId, gstin]);
 
   const filterShopProfilePayload = (payload: Record<string, any>): Record<string, any> => {
     if (!discoveredShopProfileFields) {
@@ -1635,6 +1657,131 @@ export default function App() {
     } catch (err) {
       console.error('Error applying upgrade referral:', err);
       showToast('Error validating referral code. Please try again.', 'info');
+    }
+  };
+
+  // Handle Google Sign-In via Supabase OAuth
+  const handleGoogleSignIn = async () => {
+    setAuthError(null);
+    try {
+      console.log('Redirecting to Google OAuth via Supabase...');
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+      if (error) {
+        setAuthError(error.message);
+        showToast(error.message, 'info');
+      }
+    } catch (err: any) {
+      console.error('Google Sign-In Exception:', err);
+      setAuthError(err.message || 'An error occurred during Google sign-in.');
+    }
+  };
+
+  // Save the onboarding profile data completed by Google Auth user
+  const handleSaveCompletedProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCompletionSubmitting(true);
+    setCompletionError(null);
+
+    const name = sanitizeTextInput(completionShopName);
+    const owner = sanitizeTextInput(completionOwnerName);
+    const phone = sanitizePhoneInput(completionPhone);
+    const upi = sanitizeTextInput(completionUpi);
+    const gstinVal = completionNoGstin ? 'URP' : sanitizeTextInput(completionGstin).toUpperCase();
+
+    if (!name || name === 'Verma General Store' || name === 'My General Store') {
+      setCompletionError('Please enter a valid Merchant Shop Name.');
+      setCompletionSubmitting(false);
+      return;
+    }
+    if (!owner) {
+      setCompletionError("Please enter the Owner's full name.");
+      setCompletionSubmitting(false);
+      return;
+    }
+    if (!phone || phone.replace(/[\s\-()]/g, '').length < 10) {
+      setCompletionError('Please enter a valid 10-digit mobile number.');
+      setCompletionSubmitting(false);
+      return;
+    }
+    if (!upi || !upi.includes('@')) {
+      setCompletionError('Please enter a valid UPI ID (e.g. name@bank).');
+      setCompletionSubmitting(false);
+      return;
+    }
+    if (!completionNoGstin && (!gstinVal || gstinVal.length !== 15)) {
+      setCompletionError('Please enter a valid 15-character GSTIN, or check "I do not have GSTIN".');
+      setCompletionSubmitting(false);
+      return;
+    }
+
+    try {
+      console.log('Saving completed profile for Google sign-in user...', { name, owner, phone, upi, gstinVal });
+
+      const payload = {
+        user_id: user.id,
+        shop_name: name,
+        owner_name: owner,
+        phone: phone,
+        upi_id: upi,
+        gstin: gstinVal,
+        email: user.email
+      };
+
+      const filtered = filterShopProfilePayload(payload);
+
+      // Save to public.shop_profiles via upsert
+      const { error: dbErr } = await supabase
+        .from('shop_profiles')
+        .upsert(filtered, { onConflict: 'user_id' });
+
+      if (dbErr) {
+        throw dbErr;
+      }
+
+      // Sync settings to user metadata
+      const { error: metaErr } = await supabase.auth.updateUser({
+        data: {
+          shop_name: name,
+          owner_name: owner,
+          phone: phone,
+          upi_id: upi,
+          gstin: gstinVal
+        }
+      });
+      if (metaErr) {
+        console.warn('Metadata sync failed, but DB succeeded:', metaErr.message);
+      }
+
+      // Update state locally
+      setShopName(name);
+      setCustomShopInput(name);
+      setOwnerName(owner);
+      setCustomOwnerInput(owner);
+      setShopPhone(phone);
+      setCustomShopPhoneInput(phone);
+      setUpiId(upi);
+      setCustomUpiInput(upi);
+      setGstin(gstinVal);
+      setCustomGstinInput(gstinVal);
+
+      // Save to localStorage
+      localStorage.setItem('invoicepe_shop_name', name);
+      localStorage.setItem('invoicepe_owner_name', owner);
+      localStorage.setItem('invoicepe_shop_phone', phone);
+      localStorage.setItem('invoicepe_upi_id', upi);
+      localStorage.setItem('invoicepe_gstin', gstinVal);
+
+      showToast('Vyapaar Profile completed successfully!', 'success');
+    } catch (err: any) {
+      console.error('Error saving completed profile:', err);
+      setCompletionError(err.message || 'Failed to save profile. Please try again.');
+    } finally {
+      setCompletionSubmitting(false);
     }
   };
 
@@ -3867,6 +4014,29 @@ Powered by InvoicePe 🧾`;
               </div>
             </div>
  
+            {/* Continue with Google button */}
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 border border-slate-250 text-slate-700 py-3 rounded-xl font-bold text-xs shadow-sm hover:shadow transition-all cursor-pointer border-solid"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-[1px] bg-slate-200"></div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">or enter credentials</span>
+                <div className="flex-1 h-[1px] bg-slate-200"></div>
+              </div>
+            </div>
+ 
             {/* Form */}
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               {authMode === 'signup' && (
@@ -4022,6 +4192,188 @@ Powered by InvoicePe 🧾`;
           <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest -mx-6 -mb-6 bg-slate-50">
             <p>🔒 AES-256 Bit Supabase Encrypted Ledger</p>
             <p>© 2026 InvoicePe App. All customer data saved securely.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if Google Sign-In user has incomplete profile fields
+  const isProfileIncomplete = useMemo(() => {
+    if (!user) return false;
+    
+    const isGoogleUser = user.app_metadata?.provider === 'google' || 
+                         user.app_metadata?.providers?.includes('google') || 
+                         user.identities?.some((id: any) => id.provider === 'google');
+                         
+    if (!isGoogleUser) return false;
+    
+    // We require Shop Name, Owner Name, Phone number, UPI ID, and GSTIN to be completed
+    // Note: GSTIN can be marked as "URP" (Unregistered Person) via our checkbox, which satisfies the non-empty check!
+    const isShopEmpty = !shopName || shopName.trim() === '' || shopName === 'Verma General Store' || shopName === 'My General Store';
+    const isPhoneEmpty = !shopPhone || shopPhone.trim() === '';
+    const isOwnerEmpty = !ownerName || ownerName.trim() === '';
+    const isUpiEmpty = !upiId || upiId.trim() === '';
+    const isGstinEmpty = !gstin || gstin.trim() === '';
+    
+    return isShopEmpty || isPhoneEmpty || isOwnerEmpty || isUpiEmpty || isGstinEmpty;
+  }, [user, shopName, shopPhone, ownerName, upiId, gstin]);
+
+  if (user && isProfileIncomplete) {
+    return (
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
+          
+          {/* Top Status Header */}
+          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-3 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/30 w-full">
+            <span className="flex items-center gap-1.5 flex-row">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+              <span>Merchant Onboarding Node</span>
+            </span>
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                setUser(null);
+              }}
+              className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-poppins text-[10px] font-bold rounded transition-all cursor-pointer border border-red-100"
+            >
+              Sign Out
+            </button>
+          </div>
+
+          {/* Body Content */}
+          <div className="flex-1 p-5 flex flex-col justify-start space-y-4 overflow-y-auto">
+            <div className="text-center space-y-2 mt-2">
+              <div className="mx-auto w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md">
+                💼
+              </div>
+              <div>
+                <h1 className="text-lg font-poppins font-bold text-slate-900 tracking-tight leading-none">
+                  Complete Your Profile
+                </h1>
+                <p className="text-[10px] text-slate-500 font-medium tracking-normal mt-1.5">
+                  Set up your digital ledger to start billing
+                </p>
+              </div>
+            </div>
+
+            {completionError && (
+              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-[11px] font-bold text-red-700 leading-snug flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <span>{completionError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveCompletedProfile} className="space-y-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              
+              {/* Shop Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 block">Merchant Shop Name (दुकान का नाम) <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={completionShopName}
+                  onChange={(e) => setCompletionShopName(e.target.value)}
+                  placeholder="e.g. Verma General Store"
+                  className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
+                />
+              </div>
+
+              {/* Owner Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 block">Owner Name (मालिक का नाम) <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={completionOwnerName}
+                  onChange={(e) => setCompletionOwnerName(e.target.value)}
+                  placeholder="e.g. Ramesh Verma"
+                  className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 block">WhatsApp / Phone Number (मोबाइल नंबर) <span className="text-red-500">*</span></label>
+                <input
+                  type="tel"
+                  required
+                  pattern="[0-9]{10}"
+                  maxLength={10}
+                  value={completionPhone}
+                  onChange={(e) => setCompletionPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="e.g. 9876543210 (10 digits)"
+                  className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
+                />
+              </div>
+
+              {/* UPI ID */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 block">UPI ID for Payments (UPI आईडी) <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={completionUpi}
+                  onChange={(e) => setCompletionUpi(e.target.value.trim())}
+                  placeholder="e.g. ramesh@upi (Required for QR Codes)"
+                  className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
+                />
+              </div>
+
+              {/* GSTIN Number */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-semibold text-slate-500">GSTIN Number (optional)</label>
+                  <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={completionNoGstin}
+                      onChange={(e) => {
+                        setCompletionNoGstin(e.target.checked);
+                        if (e.target.checked) setCompletionGstin('');
+                      }}
+                      className="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
+                    />
+                    <span>Unregistered / No GSTIN</span>
+                  </label>
+                </div>
+                {!completionNoGstin && (
+                  <input
+                    type="text"
+                    maxLength={15}
+                    value={completionGstin}
+                    onChange={(e) => setCompletionGstin(e.target.value.trim().toUpperCase())}
+                    placeholder="e.g. 07AAAAA1111A1Z1 (15 characters)"
+                    className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950 uppercase"
+                  />
+                )}
+              </div>
+
+              {/* Submit Onboarding Button */}
+              <button
+                type="submit"
+                disabled={completionSubmitting}
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 text-white py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer mt-2"
+              >
+                {completionSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                    <span>Completing Vyapaar Setup...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Submit & Start Billing</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          {/* Footer */}
+          <div className="text-center py-4 border-t border-slate-100 text-[10px] text-slate-500 font-semibold space-y-1 bg-slate-50">
+            <p>🔒 256-Bit SSL Encrypted Node</p>
+            <p>© 2026 InvoicePe Ledger Network</p>
           </div>
         </div>
       </div>
