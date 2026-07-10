@@ -224,6 +224,11 @@ export default function App() {
 
   // Stable active session validation helper to prevent broken state and silent API failures
   const ensureFreshSession = async (): Promise<any> => {
+    if (isResettingPasswordRef.current) {
+      console.log('ensureFreshSession: password recovery in progress, skipping active session check.');
+      return user;
+    }
+
     // If the auth loading is active, wait until it resolves so we don't return null/stale unexpectedly
     if (authLoading) {
       console.log('ensureFreshSession: Auth is currently loading, waiting for initialization to complete...');
@@ -386,6 +391,10 @@ export default function App() {
   const [resetSubmitting, setResetSubmitting] = useState(false);
   const [resetMessage, setResetMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const isResettingPasswordRef = React.useRef(false);
+  useEffect(() => {
+    isResettingPasswordRef.current = isResettingPassword;
+  }, [isResettingPassword]);
   const [pastedResetUrl, setPastedResetUrl] = useState('');
   const [pastedResetError, setPastedResetError] = useState<string | null>(null);
 
@@ -562,6 +571,11 @@ export default function App() {
 
   useEffect(() => {
     const handleLocationChange = () => {
+      if (isResettingPasswordRef.current) {
+        console.log('handleLocationChange: password recovery lock is active. Preventing exit to other pathways.');
+        setCurrentPath('/forgot-password-secret');
+        return;
+      }
       if (window.location.hash.startsWith('#/')) {
         setCurrentPath(window.location.hash.substring(1));
       } else if (window.location.hash.startsWith('#')) {
@@ -2094,6 +2108,10 @@ export default function App() {
       }
 
       if (event === 'SIGNED_OUT') {
+        if (isResettingPasswordRef.current) {
+          console.log('onAuthStateChange: SIGNED_OUT event received during active password recovery, ignoring state clear.');
+          return;
+        }
         setUser(null);
         setInvoices([]);
         setUdhaars([]);
@@ -3358,7 +3376,13 @@ Powered by InvoicePe 🧾`;
               <span>ADMIN SECURE RECOVERY SYSTEM</span>
             </span>
             <button
-              onClick={() => {
+              onClick={async () => {
+                setIsResettingPassword(false);
+                try {
+                  await supabase.auth.signOut();
+                } catch (err) {
+                  console.error('Error signing out during Exit Gateway:', err);
+                }
                 window.location.hash = '';
                 setCurrentPath('/');
               }}
