@@ -3365,20 +3365,26 @@ Powered by InvoicePe 🧾`;
         return;
       }
 
-      if (!recoveryTokens || !recoveryTokens.accessToken) {
-        setResetMessage({ text: 'Please request a new link from the login page.', type: 'error' });
-        showToast('Please request a new link from the login page.', 'info');
-        return;
-      }
+      
 
       setResetSubmitting(true);
       setResetMessage(null);
       try { 
         console.log('Explicitly establishing session with saved recovery tokens...');
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: recoveryTokens.accessToken,
-          refresh_token: recoveryTokens.refreshToken || ''
-        });
+       // Real-time URL hash parse framework fallback
+  let tokenToUse = recoveryTokens?.accessToken;
+  let refreshToUse = recoveryTokens?.refreshToken;
+
+  if (!tokenToUse && window.location.hash) {
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    tokenToUse = params.get('access_token') || '';
+    refreshToUse = params.get('refresh_token') || '';
+  }
+
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: tokenToUse || '',
+    refresh_token: refreshToUse || ''
+  });
 
         if (sessionError) {
           throw new Error(`Failed to restore recovery session: ${sessionError.message}`);
