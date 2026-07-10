@@ -392,6 +392,7 @@ export default function App() {
   const [resetMessage, setResetMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const isResettingPasswordRef = React.useRef(false);
+  const [recoveryTokens, setRecoveryTokens] = useState<{ accessToken: string; refreshToken: string } | null>(null);
   useEffect(() => {
     isResettingPasswordRef.current = isResettingPassword;
   }, [isResettingPassword]);
@@ -449,9 +450,39 @@ export default function App() {
   useEffect(() => {
     const checkHashForRecovery = async () => {
       const hash = window.location.hash || '';
-      // Only treat as password recovery if it is type=recovery or access_token but does NOT have expired/otp errors or signup/invite/email_change confirmations
-      const isSignupOrConfirm = hash.includes('type=signup') || hash.includes('type=invite') || hash.includes('type=email_change');
-      if (hash && (hash.includes('type=recovery') || (hash.includes('access_token=') && !isSignupOrConfirm)) && !hash.includes('otp_expired')) {
+      const search = window.location.search || '';
+
+      let accessToken = '';
+      let refreshToken = '';
+
+      // 1. Look in hash
+      if (hash) {
+        const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
+        const hashParams = new URLSearchParams(cleanHash);
+        accessToken = hashParams.get('access_token') || '';
+        refreshToken = hashParams.get('refresh_token') || '';
+      }
+
+      // 2. Look in search (query parameters)
+      if (!accessToken && search) {
+        const searchParams = new URLSearchParams(search);
+        accessToken = searchParams.get('access_token') || '';
+        refreshToken = searchParams.get('refresh_token') || '';
+      }
+
+      // Save tokens directly into state so they are never lost on redirects or hash/search clearance
+      if (accessToken) {
+        console.log('Successfully extracted recovery tokens:', {
+          accessToken: accessToken.substring(0, 10) + '...',
+          refreshToken: refreshToken ? refreshToken.substring(0, 10) + '...' : 'none'
+        });
+        setRecoveryTokens({ accessToken, refreshToken: refreshToken || '' });
+      }
+
+      const isSignupOrConfirm = hash.includes('type=signup') || hash.includes('type=invite') || hash.includes('type=email_change') || search.includes('type=signup') || search.includes('type=invite') || search.includes('type=email_change');
+      const hasRecoveryIndicator = hash.includes('type=recovery') || search.includes('type=recovery') || accessToken;
+
+      if (hasRecoveryIndicator && !isSignupOrConfirm && !hash.includes('otp_expired') && !search.includes('otp_expired')) {
         setIsResettingPassword(true);
         setCurrentPath('/forgot-password-secret');
         // Clear settings window if visible
@@ -459,30 +490,25 @@ export default function App() {
           setIsSettingsOpen(false);
         } catch (_) {}
 
-        // Automatically set the Supabase session from URL hash tokens if found
-        try {
-          const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
-          const params = new URLSearchParams(cleanHash);
-          const accessToken = params.get('access_token');
-          const refreshToken = params.get('refresh_token');
-          if (accessToken) {
-            console.log('Automatically setting Supabase session from URL hash...');
+        // Set the session using the parsed tokens immediately on mount
+        if (accessToken) {
+          try {
+            console.log('Automatically setting Supabase session from extracted tokens...');
             const { error } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken || '',
             });
             if (error) {
-              console.error('Error setting session from URL hash:', error);
+              console.error('Error setting session from URL tokens:', error);
             } else {
-              console.log('Session successfully established from URL hash!');
+              console.log('Session successfully established from URL tokens!');
             }
+          } catch (e) {
+            console.error('Exception setting session from URL tokens:', e);
           }
-        } catch (e) {
-          console.error('Exception setting session from URL hash:', e);
         }
-      } else if (hash && hash.includes('error_description=')) {
-        // If it's a password recovery error, route it, otherwise let auth events listener below handle it
-        if (hash.toLowerCase().includes('recovery') || hash.toLowerCase().includes('password')) {
+      } else if ((hash && hash.includes('error_description=')) || (search && search.includes('error_description='))) {
+        if (hash.toLowerCase().includes('recovery') || hash.toLowerCase().includes('password') || search.toLowerCase().includes('recovery') || search.toLowerCase().includes('password')) {
           setIsResettingPassword(true);
           setCurrentPath('/forgot-password-secret');
         }
@@ -3339,18 +3365,26 @@ Powered by InvoicePe 🧾`;
         return;
       }
 
+      if (!recoveryTokens || !recoveryTokens.accessToken) {
+        setResetMessage({ text: 'Please request a new link from the login page.', type: 'error' });
+        showToast('Please request a new link from the login page.', 'info');
+        return;
+      }
+
       setResetSubmitting(true);
       setResetMessage(null);
       try { 
-        // Fix: Extract and set recovery session from URL hash before updating password
-if (window.location.hash) {
-  const hashParams = new URLSearchParams(window.location.hash.substring(1));
-  const access_token = hashParams.get('access_token');
-  const refresh_token = hashParams.get('refresh_token');
-  if (access_token && refresh_token) {
-    await supabase.auth.setSession({ access_token, refresh_token });
-  }
-}
+        console.log('Explicitly establishing session with saved recovery tokens...');
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: recoveryTokens.accessToken,
+          refresh_token: recoveryTokens.refreshToken || ''
+        });
+
+        if (sessionError) {
+          throw new Error(`Failed to restore recovery session: ${sessionError.message}`);
+        }
+
+        console.log('Recovery session established. Saving new password...');
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) {
           setResetMessage({ text: error.message, type: 'error' });
@@ -3361,6 +3395,7 @@ if (window.location.hash) {
           setNewPassword('');
           setConfirmNewPassword('');
           setIsResettingPassword(false);
+          setRecoveryTokens(null);
           setPastedResetUrl('');
           setTimeout(() => {
             window.location.hash = '';
@@ -3477,10 +3512,16 @@ if (window.location.hash) {
             ) : (
               // STEP 3: Token verified, show password update boxes
               <form onSubmit={handleSaveNewPassword} className="space-y-4">
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] uppercase tracking-wider font-black animate-pulse flex items-center justify-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span>Reset Session Authorized / सेशन स्वीकृत</span>
-                </div>
+                {!recoveryTokens || !recoveryTokens.accessToken ? (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-center text-red-800 text-[11px] font-bold leading-relaxed">
+                    ⚠️ Please request a new link from the login page. / कृपया लॉगिन पेज से नया पासवर्ड रीसेट लिंक जनरेट करें।
+                  </div>
+                ) : (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] uppercase tracking-wider font-black animate-pulse flex items-center justify-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>Reset Session Authorized / सेशन स्वीकृत</span>
+                  </div>
+                )}
 
                 <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="space-y-1">
@@ -3491,8 +3532,9 @@ if (window.location.hash) {
                       onChange={(e) => setNewPassword(e.target.value)}
                       required
                       minLength={6}
+                      disabled={!recoveryTokens || !recoveryTokens.accessToken}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950 disabled:opacity-50"
                     />
                   </div>
 
@@ -3504,16 +3546,17 @@ if (window.location.hash) {
                       onChange={(e) => setConfirmNewPassword(e.target.value)}
                       required
                       minLength={6}
+                      disabled={!recoveryTokens || !recoveryTokens.accessToken}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950 disabled:opacity-50"
                     />
                   </div>
                 </div>
 
                 <button
                   type="submit"
-                  disabled={resetSubmitting}
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-330 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
+                  disabled={resetSubmitting || !recoveryTokens || !recoveryTokens.accessToken}
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
                 >
                   {resetSubmitting ? (
                     <>
