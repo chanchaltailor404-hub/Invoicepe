@@ -3372,20 +3372,36 @@ Powered by InvoicePe 🧾`;
       setResetMessage(null);
       try { 
         console.log('Explicitly establishing session with saved recovery tokens...');
-       // Real-time URL hash parse framework fallback
-  let tokenToUse = recoveryTokens?.accessToken;
-  let refreshToUse = recoveryTokens?.refreshToken;
+        
+        // Parse tokens directly from the live window.location at that exact millisecond
+        let tokenToUse = recoveryTokens?.accessToken || '';
+        let refreshToUse = recoveryTokens?.refreshToken || '';
 
-  if (!tokenToUse && window.location.hash) {
-    const params = new URLSearchParams(window.location.hash.substring(1));
-    tokenToUse = params.get('access_token') || '';
-    refreshToUse = params.get('refresh_token') || '';
-  }
+        const hash = window.location.hash || '';
+        const search = window.location.search || '';
 
-  const { error: sessionError } = await supabase.auth.setSession({
-    access_token: tokenToUse || '',
-    refresh_token: refreshToUse || ''
-  });
+        if (!tokenToUse && hash) {
+          const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
+          const hashParams = new URLSearchParams(cleanHash);
+          tokenToUse = hashParams.get('access_token') || '';
+          refreshToUse = hashParams.get('refresh_token') || '';
+        }
+
+        if (!tokenToUse && search) {
+          const searchParams = new URLSearchParams(search);
+          tokenToUse = searchParams.get('access_token') || '';
+          refreshToUse = searchParams.get('refresh_token') || '';
+        }
+
+        console.log('Submitting live tokens for recovery session reset:', {
+          hasToken: !!tokenToUse,
+          hasRefresh: !!refreshToUse
+        });
+
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: tokenToUse || '',
+          refresh_token: refreshToUse || ''
+        });
 
         if (sessionError) {
           throw new Error(`Failed to restore recovery session: ${sessionError.message}`);
@@ -3519,16 +3535,10 @@ Powered by InvoicePe 🧾`;
             ) : (
               // STEP 3: Token verified, show password update boxes
               <form onSubmit={handleSaveNewPassword} className="space-y-4">
-                {!recoveryTokens || !recoveryTokens.accessToken ? (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-center text-red-800 text-[11px] font-bold leading-relaxed">
-                    ⚠️ Please request a new link from the login page. / कृपया लॉगिन पेज से नया पासवर्ड रीसेट लिंक जनरेट करें।
-                  </div>
-                ) : (
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] uppercase tracking-wider font-black animate-pulse flex items-center justify-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>Reset Session Authorized / सेशन स्वीकृत</span>
-                  </div>
-                )}
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] uppercase tracking-wider font-black animate-pulse flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>Reset Session Authorized / सेशन स्वीकृत</span>
+                </div>
 
                 <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="space-y-1">
@@ -3539,9 +3549,8 @@ Powered by InvoicePe 🧾`;
                       onChange={(e) => setNewPassword(e.target.value)}
                       required
                       minLength={6}
-                      disabled={!recoveryTokens || !recoveryTokens.accessToken}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950 disabled:opacity-50"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
                     />
                   </div>
 
@@ -3553,16 +3562,15 @@ Powered by InvoicePe 🧾`;
                       onChange={(e) => setConfirmNewPassword(e.target.value)}
                       required
                       minLength={6}
-                      disabled={!recoveryTokens || !recoveryTokens.accessToken}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950 disabled:opacity-50"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
                     />
                   </div>
                 </div>
 
                 <button
                   type="submit"
-                  disabled={resetSubmitting || !recoveryTokens || !recoveryTokens.accessToken}
+                  disabled={resetSubmitting}
                   className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
                 >
                   {resetSubmitting ? (
