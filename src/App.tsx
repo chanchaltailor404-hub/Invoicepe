@@ -38,7 +38,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeCanvas } from 'qrcode.react';
 import { INITIAL_INVOICES, Invoice, InvoiceItem, SUGGESTED_ITEMS, UdhaarEntry } from './data';
 
@@ -1950,7 +1950,7 @@ export default function App() {
               price: Number(item.rate) || Number(item.price) || 0
             })),
             date: inv.created_at ? new Date(inv.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-            status: (inv.status === 'Paid' || inv.status === 'paid' || inv.status === 'PAID') ? 'Paid' : 'Pending',
+            status: ((inv.status === 'Paid' || inv.status === 'paid' || inv.status === 'PAID') ? 'Paid' : 'Pending') as 'Paid' | 'Pending',
             totalAmount: Number(inv.total_amount) || 0,
             gstRate: parsedGstRate,
             gstAmount: parsedGstAmount,
@@ -3341,7 +3341,16 @@ Powered by InvoicePe 🧾`;
 
       setResetSubmitting(true);
       setResetMessage(null);
-      try {
+      try { 
+        // Fix: Extract and set recovery session from URL hash before updating password
+if (window.location.hash) {
+  const hashParams = new URLSearchParams(window.location.hash.substring(1));
+  const access_token = hashParams.get('access_token');
+  const refresh_token = hashParams.get('refresh_token');
+  if (access_token && refresh_token) {
+    await supabase.auth.setSession({ access_token, refresh_token });
+  }
+}
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) {
           setResetMessage({ text: error.message, type: 'error' });
@@ -4723,11 +4732,11 @@ Powered by InvoicePe 🧾`;
                           )}
                           
                           <p className="text-[9.5px] text-slate-450 font-semibold font-mono">
-                            Date: {new Date(item.created_at).toLocaleDateString('en-IN', {
+                            Date: {item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',
                               year: 'numeric'
-                            })}
+                            }) : ''}
                           </p>
                         </div>
 
@@ -4809,7 +4818,7 @@ Powered by InvoicePe 🧾`;
                           )}
                           
                           <p className="text-[9px] text-slate-400 font-mono font-bold leading-none">
-                            Received: {new Date(item.created_at).toLocaleDateString('en-IN')}
+                            Received: {item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : ''}
                           </p>
                         </div>
 
