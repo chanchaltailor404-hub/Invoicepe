@@ -398,7 +398,7 @@ export default function App() {
   });
 
   // Password Reset / Recovery States
-  const [resetEmail, setResetEmail] = useState('chanchaltailor404@gmail.com');
+  const [resetEmail, setResetEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [resetSubmitting, setResetSubmitting] = useState(false);
@@ -3551,7 +3551,7 @@ Powered by InvoicePe 🧾`;
                       value={resetEmail}
                       onChange={(e) => setResetEmail(e.target.value)}
                       required
-                      placeholder="chanchaltailor404@gmail.com"
+                      placeholder="email@example.com"
                       className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-850"
                     />
                   </div>
