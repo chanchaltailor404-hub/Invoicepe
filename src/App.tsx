@@ -392,7 +392,32 @@ export default function App() {
   const [resetMessage, setResetMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const isResettingPasswordRef = React.useRef(false);
-  const [recoveryTokens, setRecoveryTokens] = useState<{ accessToken: string; refreshToken: string } | null>(null);
+  // Synchronously parse tokens from window.location at the very first millisecond
+  const initialRecoveryTokens = React.useMemo(() => {
+    let accessToken = '';
+    let refreshToken = '';
+    try {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      if (hash) {
+        const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
+        const hashParams = new URLSearchParams(cleanHash);
+        accessToken = hashParams.get('access_token') || '';
+        refreshToken = hashParams.get('refresh_token') || '';
+      }
+      if (!accessToken && search) {
+        const searchParams = new URLSearchParams(search);
+        accessToken = searchParams.get('access_token') || '';
+        refreshToken = searchParams.get('refresh_token') || '';
+      }
+    } catch (e) {
+      console.error('Error during early recovery token parse:', e);
+    }
+    return accessToken ? { accessToken, refreshToken } : null;
+  }, []);
+
+  const [recoveryTokens, setRecoveryTokens] = useState<{ accessToken: string; refreshToken: string } | null>(initialRecoveryTokens);
+  const recoveryTokensRef = React.useRef<{ accessToken: string; refreshToken: string } | null>(initialRecoveryTokens);
   useEffect(() => {
     isResettingPasswordRef.current = isResettingPassword;
   }, [isResettingPassword]);
@@ -477,7 +502,9 @@ export default function App() {
           accessToken: accessToken.substring(0, 10) + '...',
           refreshToken: refreshToken ? refreshToken.substring(0, 10) + '...' : 'none'
         });
-        setRecoveryTokens({ accessToken, refreshToken: refreshToken || '' });
+        const tokens = { accessToken, refreshToken: refreshToken || '' };
+        setRecoveryTokens(tokens);
+        recoveryTokensRef.current = tokens;
       }
 
       const isSignupOrConfirm = hash.includes('type=signup') || hash.includes('type=invite') || hash.includes('type=email_change') || search.includes('type=signup') || search.includes('type=invite') || search.includes('type=email_change');
@@ -3374,8 +3401,8 @@ Powered by InvoicePe 🧾`;
         console.log('Explicitly establishing session with saved recovery tokens...');
         
         // Parse tokens directly from the live window.location at that exact millisecond
-        let tokenToUse = recoveryTokens?.accessToken || '';
-        let refreshToUse = recoveryTokens?.refreshToken || '';
+        let tokenToUse = recoveryTokens?.accessToken || recoveryTokensRef.current?.accessToken || '';
+        let refreshToUse = recoveryTokens?.refreshToken || recoveryTokensRef.current?.refreshToken || '';
 
         const hash = window.location.hash || '';
         const search = window.location.search || '';
