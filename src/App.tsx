@@ -166,6 +166,27 @@ export default function App() {
     }
   }, [user, shopName, ownerName, shopPhone, upiId, gstin]);
 
+  // Check if Google Sign-In user has incomplete profile fields
+  const isProfileIncomplete = useMemo(() => {
+    if (!user) return false;
+    
+    const isGoogleUser = user.app_metadata?.provider === 'google' || 
+                         user.app_metadata?.providers?.includes('google') || 
+                         user.identities?.some((id: any) => id.provider === 'google');
+                         
+    if (!isGoogleUser) return false;
+    
+    // We require Shop Name, Owner Name, Phone number, UPI ID, and GSTIN to be completed
+    // Note: GSTIN can be marked as "URP" (Unregistered Person) via our checkbox, which satisfies the non-empty check!
+    const isShopEmpty = !shopName || shopName.trim() === '' || shopName === 'Verma General Store' || shopName === 'My General Store';
+    const isPhoneEmpty = !shopPhone || shopPhone.trim() === '';
+    const isOwnerEmpty = !ownerName || ownerName.trim() === '';
+    const isUpiEmpty = !upiId || upiId.trim() === '';
+    const isGstinEmpty = !gstin || gstin.trim() === '';
+    
+    return isShopEmpty || isPhoneEmpty || isOwnerEmpty || isUpiEmpty || isGstinEmpty;
+  }, [user, shopName, shopPhone, ownerName, upiId, gstin]);
+
   const filterShopProfilePayload = (payload: Record<string, any>): Record<string, any> => {
     if (!discoveredShopProfileFields) {
       const fallbackCols = [
@@ -394,27 +415,31 @@ export default function App() {
 
   // Routing and Admin Panel States
   const [currentPath, setCurrentPath] = useState(() => {
-    // 1. Check window.location.href for double hash or standard access_token=
-    const href = window.location.href || '';
-    const tokenIdx = href.indexOf('access_token=');
-    if (tokenIdx !== -1) {
-      const paramString = href.substring(tokenIdx);
-      const params = new URLSearchParams(paramString);
-      const type = params.get('type') || '';
-      if (type === 'recovery') {
-        // Route immediately to forgot-password-secret to prevent interfering with router hash parsing
-        return '/forgot-password-secret';
+    try {
+      // 1. Check window.location.href for double hash or standard access_token=
+      const href = window.location.href || '';
+      const tokenIdx = href.indexOf('access_token=');
+      if (tokenIdx !== -1) {
+        const paramString = href.substring(tokenIdx);
+        const params = new URLSearchParams(paramString);
+        const type = params.get('type') || '';
+        if (type === 'recovery') {
+          // Route immediately to forgot-password-secret to prevent interfering with router hash parsing
+          return '/forgot-password-secret';
+        }
       }
-    }
 
-    if (window.location.hash.startsWith('#/')) {
-      return window.location.hash.substring(1);
-    }
-    if (window.location.hash.startsWith('#')) {
-      const hashVal = window.location.hash.substring(1);
-      if (hashVal.startsWith('/') || hashVal.includes('-secret')) {
-        return hashVal.startsWith('/') ? hashVal : '/' + hashVal;
+      if (window.location.hash.startsWith('#/')) {
+        return window.location.hash.substring(1);
       }
+      if (window.location.hash.startsWith('#')) {
+        const hashVal = window.location.hash.substring(1);
+        if (hashVal.startsWith('/') || hashVal.includes('-secret')) {
+          return hashVal.startsWith('/') ? hashVal : '/' + hashVal;
+        }
+      }
+    } catch (e) {
+      console.error('Error during early path parsing:', e);
     }
     return window.location.pathname;
   });
@@ -524,60 +549,69 @@ export default function App() {
 
   useEffect(() => {
     const checkHashForRecovery = async () => {
-      // 1. Takes window.location.href (full URL as string)
-      const url = window.location.href || '';
-      
-      // 2. Finds the index of "access_token=" using indexOf() — regardless of what comes before it
-      const tokenIdx = url.indexOf('access_token=');
-      if (tokenIdx !== -1) {
-        // 3. Manually parses everything after that index as URL params
-        const paramString = url.substring(tokenIdx);
-        const params = new URLSearchParams(paramString);
+      try {
+        // 1. Takes window.location.href (full URL as string)
+        const url = window.location.href || '';
         
-        const accessToken = params.get('access_token') || '';
-        const refreshToken = params.get('refresh_token') || '';
-        const type = params.get('type') || '';
-        
-        if (accessToken) {
-          console.log('Successfully manually extracted recovery tokens from full href:', {
-            accessToken: accessToken.substring(0, 10) + '...',
-            refreshToken: refreshToken ? refreshToken.substring(0, 10) + '...' : 'none',
-            type
-          });
-          const tokens = { accessToken, refreshToken: refreshToken || '' };
-          setRecoveryTokens(tokens);
-          recoveryTokensRef.current = tokens;
-        }
-
-        // 4. If type === 'recovery' and both tokens exist, call setSession
-        if (type === 'recovery' && accessToken && refreshToken) {
-          setIsResettingPassword(true);
-          setCurrentPath('/forgot-password-secret');
-          // Clear settings window if visible
-          try {
-            setIsSettingsOpen(false);
-          } catch (_) {}
-
-          try {
-            console.log('Mount: Establishing Supabase session explicitly using URL tokens...');
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken
-            });
-            if (sessionError) {
-              console.error('Mount: Failed to set recovery session:', sessionError.message);
-            } else {
-              console.log('Mount: Recovery session successfully established via setSession!');
+        // 2. Finds the index of "access_token=" using indexOf() — regardless of what comes before it
+        const tokenIdx = url.indexOf('access_token=');
+        if (tokenIdx !== -1) {
+          // 3. Manually parses everything after that index as URL params
+          const paramString = url.substring(tokenIdx);
+          const params = new URLSearchParams(paramString);
+          
+          const accessToken = params.get('access_token') || '';
+          const refreshToken = params.get('refresh_token') || '';
+          const type = params.get('type') || '';
+          
+          // Only extract and set recovery tokens if type is explicitly 'recovery'
+          if (type === 'recovery') {
+            if (accessToken) {
+              console.log('Successfully manually extracted recovery tokens from full href:', {
+                accessToken: accessToken.substring(0, 10) + '...',
+                refreshToken: refreshToken ? refreshToken.substring(0, 10) + '...' : 'none',
+                type
+              });
+              const tokens = { accessToken, refreshToken: refreshToken || '' };
+              setRecoveryTokens(tokens);
+              recoveryTokensRef.current = tokens;
             }
-          } catch (e) {
-            console.error('Mount: Exception setting recovery session:', e);
+
+            // If type === 'recovery' and both tokens exist, call setSession
+            if (accessToken && refreshToken) {
+              setIsResettingPassword(true);
+              setCurrentPath('/forgot-password-secret');
+              // Clear settings window if visible
+              try {
+                setIsSettingsOpen(false);
+              } catch (_) {}
+
+              try {
+                console.log('Mount: Establishing Supabase session explicitly using URL tokens...');
+                const { error: sessionError } = await supabase.auth.setSession({
+                  access_token: accessToken,
+                  refresh_token: refreshToken
+                });
+                if (sessionError) {
+                  console.error('Mount: Failed to set recovery session:', sessionError.message);
+                } else {
+                  console.log('Mount: Recovery session successfully established via setSession!');
+                }
+              } catch (e) {
+                console.error('Mount: Exception setting recovery session:', e);
+              }
+            }
+          } else {
+            console.log('Access token found in hash, but type is NOT "recovery" (likely Google OAuth login). Skipping password recovery flow.');
+          }
+        } else if (url.toLowerCase().includes('error_description=')) {
+          if (url.toLowerCase().includes('recovery') || url.toLowerCase().includes('password')) {
+            setIsResettingPassword(true);
+            setCurrentPath('/forgot-password-secret');
           }
         }
-      } else if (url.toLowerCase().includes('error_description=')) {
-        if (url.toLowerCase().includes('recovery') || url.toLowerCase().includes('password')) {
-          setIsResettingPassword(true);
-          setCurrentPath('/forgot-password-secret');
-        }
+      } catch (err) {
+        console.error('Exception in checkHashForRecovery block:', err);
       }
     };
     checkHashForRecovery();
@@ -2341,6 +2375,15 @@ export default function App() {
       }
 
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // Clear URL hash after successful login to prevent reprocessing on next render
+        try {
+          if (window.location.hash && !window.location.hash.includes('recovery')) {
+            window.location.hash = '';
+          }
+        } catch (e) {
+          console.error('Error clearing URL hash:', e);
+        }
+
         if (sessionUser) {
           setUser(sessionUser);
 
@@ -4197,27 +4240,6 @@ Powered by InvoicePe 🧾`;
       </div>
     );
   }
-
-  // Check if Google Sign-In user has incomplete profile fields
-  const isProfileIncomplete = useMemo(() => {
-    if (!user) return false;
-    
-    const isGoogleUser = user.app_metadata?.provider === 'google' || 
-                         user.app_metadata?.providers?.includes('google') || 
-                         user.identities?.some((id: any) => id.provider === 'google');
-                         
-    if (!isGoogleUser) return false;
-    
-    // We require Shop Name, Owner Name, Phone number, UPI ID, and GSTIN to be completed
-    // Note: GSTIN can be marked as "URP" (Unregistered Person) via our checkbox, which satisfies the non-empty check!
-    const isShopEmpty = !shopName || shopName.trim() === '' || shopName === 'Verma General Store' || shopName === 'My General Store';
-    const isPhoneEmpty = !shopPhone || shopPhone.trim() === '';
-    const isOwnerEmpty = !ownerName || ownerName.trim() === '';
-    const isUpiEmpty = !upiId || upiId.trim() === '';
-    const isGstinEmpty = !gstin || gstin.trim() === '';
-    
-    return isShopEmpty || isPhoneEmpty || isOwnerEmpty || isUpiEmpty || isGstinEmpty;
-  }, [user, shopName, shopPhone, ownerName, upiId, gstin]);
 
   if (user && isProfileIncomplete) {
     return (
