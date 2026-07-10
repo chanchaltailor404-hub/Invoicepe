@@ -416,6 +416,7 @@ export default function App() {
     if (!user || user.email !== 'chanchaltailor404@gmail.com') return;
     setAdminLoading(true);
     setAdminRpcError(null);
+    
     try {
       console.log('Admin loading all registered users directly from shop_profiles...');
       const { data, error } = await supabase
