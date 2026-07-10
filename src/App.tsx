@@ -3476,14 +3476,14 @@ Powered by InvoicePe 🧾`;
     };
 
     return (
-      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
         <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
           
           {/* Top Status Header */}
-          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-3 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/30">
+          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-3 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/30">
             <span className="flex items-center gap-1.5 flex-row">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-              <span>ADMIN SECURE RECOVERY SYSTEM</span>
+              <span>Admin Secure Recovery System</span>
             </span>
             <button
               onClick={async () => {
@@ -3496,42 +3496,42 @@ Powered by InvoicePe 🧾`;
                 window.location.hash = '';
                 setCurrentPath('/');
               }}
-              className="px-2 py-0.5 bg-orange-100/50 hover:bg-orange-100 text-orange-950 font-sans text-[9px] uppercase font-black rounded transition-all cursor-pointer border-0"
+              className="px-2.5 py-1 bg-orange-100/50 hover:bg-orange-100 text-orange-950 font-poppins text-[10px] font-semibold rounded transition-all cursor-pointer border-0"
             >
               Exit Gateway
             </button>
           </div>
-
+ 
           {/* Body Content */}
           <div className="flex-1 p-5 flex flex-col justify-start space-y-5 overflow-y-auto">
             <div className="text-center space-y-2">
-              <div className="mx-auto w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-md">
+              <div className="mx-auto w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md">
                 🔒
               </div>
               <div>
-                <h1 className="text-lg font-display font-black text-slate-900 tracking-tight leading-none">
+                <h1 className="text-lg font-poppins font-bold text-slate-900 tracking-tight leading-none">
                   Reset Password / पासवर्ड बदलें
                 </h1>
-                <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest mt-1">
+                <p className="text-[10px] text-slate-500 font-medium tracking-normal mt-1.5">
                   InvoicePe Simple Recovery Wizard
                 </p>
               </div>
             </div>
-
+ 
             {resetMessage && (
               <div className={`p-4 rounded-xl border text-xs font-bold leading-relaxed ${resetMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
                 {resetMessage.text}
               </div>
             )}
-
+ 
             {!isResettingPassword ? (
               <div className="space-y-5">
                 {/* Visual Instructions Card */}
                 <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm space-y-2">
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  <h3 className="text-xs font-semibold text-slate-800">
                     Password Reset Instructions / पासवर्ड रीसेट निर्देश:
                   </h3>
-                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                  <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
                     Enter your registered email address and press <strong>Send Reset Link</strong>. 
                     We will send a secure link to your email. Clicking that link will automatically 
                     and securely return you here to enter your new password.
@@ -3539,11 +3539,11 @@ Powered by InvoicePe 🧾`;
                     अपना ईमेल लिखकर <strong>"Send Reset Link"</strong> दबाएं। आपको ईमेल पर सुरक्षित लिंक मिलेगा, जिसे खोलते ही आप सीधे नया पासवर्ड सेट कर पाएंगे।
                   </p>
                 </div>
-
+ 
                 {/* Submit Email Form */}
                 <form onSubmit={handleTriggerReset} className="space-y-3.5 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block mb-1">
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">
                       Your Registered Email / आपका ईमेल
                     </label>
                     <input
@@ -3552,14 +3552,14 @@ Powered by InvoicePe 🧾`;
                       onChange={(e) => setResetEmail(e.target.value)}
                       required
                       placeholder="email@example.com"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-850"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-850"
                     />
                   </div>
-
+ 
                   <button
                     type="submit"
                     disabled={resetSubmitting}
-                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
                   >
                     {resetSubmitting ? (
                       <>
@@ -3578,14 +3578,14 @@ Powered by InvoicePe 🧾`;
             ) : (
               // STEP 3: Token verified, show password update boxes
               <form onSubmit={handleSaveNewPassword} className="space-y-4">
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] uppercase tracking-wider font-black animate-pulse flex items-center justify-center gap-2">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] tracking-wide font-semibold animate-pulse flex items-center justify-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                   <span>Reset Session Authorized / सेशन स्वीकृत</span>
                 </div>
-
+ 
                 <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">New Password (नया पासवर्ड)</label>
+                    <label className="text-xs font-semibold text-slate-500 block">New Password (नया पासवर्ड)</label>
                     <input
                       type="password"
                       value={newPassword}
@@ -3593,12 +3593,12 @@ Powered by InvoicePe 🧾`;
                       required
                       minLength={6}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
                     />
                   </div>
-
+ 
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Confirm New Password (पासवर्ड दोबारा लिखें)</label>
+                    <label className="text-xs font-semibold text-slate-500 block">Confirm New Password (पासवर्ड दोबारा लिखें)</label>
                     <input
                       type="password"
                       value={confirmNewPassword}
@@ -3606,15 +3606,15 @@ Powered by InvoicePe 🧾`;
                       required
                       minLength={6}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-950"
+                      className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
                     />
                   </div>
                 </div>
-
+ 
                 <button
                   type="submit"
                   disabled={resetSubmitting}
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
                 >
                   {resetSubmitting ? (
                     <>
@@ -3631,9 +3631,9 @@ Powered by InvoicePe 🧾`;
               </form>
             )}
           </div>
-
+ 
           {/* Footer lock and trust notation */}
-          <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest bg-slate-50">
+          <div className="text-center py-4 border-t border-slate-100 text-[10px] text-slate-500 font-semibold space-y-1 bg-slate-50">
             <p>🔒 Security Protocol • SHA-256 Encryption</p>
             <p>© 2026 InvoicePe Master Account Node</p>
           </div>
@@ -3839,39 +3839,39 @@ Powered by InvoicePe 🧾`;
 
   if (!user) {
     return (
-      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
         <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
           
           {/* Top Status Accent */}
-          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/50 -mx-6 -mt-6">
-            <span>SECURE INVOICEPE PORTAL</span>
+          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/50 -mx-6 -mt-6">
+            <span>Secure InvoicePe Portal</span>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-              <span>SYSTEM LOGIN</span>
+              <span>System Login</span>
             </div>
           </div>
-
+ 
           <div className="flex-1 flex flex-col justify-center py-6 space-y-6">
             {/* Branding Header */}
             <div className="text-center space-y-3">
-              <div className="mx-auto w-14 h-14 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-lg shadow-orange-200/80">
+              <div className="mx-auto w-14 h-14 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold text-3xl shadow-lg shadow-orange-200/80">
                 I
               </div>
               <div className="space-y-1 pt-1">
-                <h1 className="text-2xl font-display font-black text-slate-900 tracking-tight leading-none">
-                  Invoice<span className="text-orange-500">Pe</span>
+                <h1 className="text-2xl font-poppins font-bold text-slate-900 tracking-tight leading-none">
+                  Invoice<span className="text-orange-500 font-extrabold">Pe</span>
                 </h1>
-                <p className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-widest leading-none mt-1">
+                <p className="text-xs text-slate-500 font-medium tracking-normal mt-1.5">
                   India's Digital Vyapaar & Udhaar Ledger
                 </p>
               </div>
             </div>
-
+ 
             {/* Form */}
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               {authMode === 'signup' && (
                 <div className="space-y-1 animate-fadeIn">
-                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Merchant Shop Name</label>
+                  <label className="text-xs font-semibold text-slate-500 block">Merchant Shop Name</label>
                   <input
                     type="text"
                     value={shopName}
@@ -3881,25 +3881,25 @@ Powered by InvoicePe 🧾`;
                     }}
                     placeholder="e.g. Verma General Store"
                     required
-                    className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                    className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-medium text-slate-900 shadow-sm"
                   />
                 </div>
               )}
-
+ 
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Email Address</label>
+                <label className="text-xs font-semibold text-slate-500 block">Email Address</label>
                 <input
                   type="email"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   placeholder="name@store.com"
                   required
-                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-medium text-slate-900 shadow-sm"
                 />
               </div>
-
+ 
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Security Password</label>
+                <label className="text-xs font-semibold text-slate-500 block">Security Password</label>
                 <input
                   type="password"
                   value={authPassword}
@@ -3907,26 +3907,26 @@ Powered by InvoicePe 🧾`;
                   placeholder="Min 6 characters"
                   required
                   minLength={6}
-                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm"
+                  className="w-full text-xs px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-medium text-slate-900 shadow-sm"
                 />
               </div>
-
+ 
               {authMode === 'signup' && (
                 <div className="space-y-1 animate-fadeIn">
-                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">Have a referral code? Enter here (optional)</label>
+                  <label className="text-xs font-semibold text-slate-500 block">Have a referral code? Enter here (optional)</label>
                   <input
                     type="text"
                     value={enteredReferralCode}
                     onChange={(e) => setEnteredReferralCode(e.target.value.trim().toUpperCase())}
                     placeholder="e.g. RAMESH20"
-                    className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-bold text-slate-900 shadow-sm uppercase font-mono placeholder:font-sans placeholder:normal-case"
+                    className="w-full text-xs px-4 py-3 bg-white border border-slate-250 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-semibold text-slate-900 shadow-sm uppercase font-mono placeholder:font-poppins placeholder:normal-case"
                   />
                 </div>
               )}
-
+ 
               {/* Remember Me box & Help */}
               <div className="flex items-center justify-between pt-1 select-none">
-                <label className="flex items-center gap-2 cursor-pointer font-bold text-[10.5px] text-slate-500">
+                <label className="flex items-center gap-2 cursor-pointer font-semibold text-[11px] text-slate-500">
                   <input
                     type="checkbox"
                     checked={rememberMe}
@@ -3942,26 +3942,26 @@ Powered by InvoicePe 🧾`;
                       window.location.hash = 'forgot-password-secret';
                       window.dispatchEvent(new Event('hashchange'));
                     }}
-                    className="text-[10.5px] font-black text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
+                    className="text-[11px] font-bold text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
                   >
                     Forgot Lock?
                   </button>
                 )}
               </div>
-
+ 
               {/* Submit Error */}
               {authError && (
-                <div className="p-3.5 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-[10.5px] font-bold text-red-700 leading-snug">
+                <div className="p-3.5 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-[10.5px] font-semibold text-red-700 leading-snug">
                   <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                   <span>{authError.split('💡')[0]}</span>
                 </div>
               )}
-
+ 
               {/* Action Button */}
               <button
                 type="submit"
                 disabled={authSubmitting}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-extrabold text-xs shadow-md shadow-orange-100 uppercase tracking-widest transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-bold text-xs shadow-md shadow-orange-100 uppercase tracking-wider transition-all cursor-pointer"
               >
                 {authSubmitting ? (
                   <>
@@ -3976,7 +3976,7 @@ Powered by InvoicePe 🧾`;
                 )}
               </button>
             </form>
-
+ 
             {/* Toggle Login vs SignUp option */}
             <div className="text-center pt-2">
               <button
@@ -3985,23 +3985,23 @@ Powered by InvoicePe 🧾`;
                   setAuthMode(authMode === 'login' ? 'signup' : 'login');
                   setAuthError(null);
                 }}
-                className="text-[11px] font-extrabold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
+                className="text-[11.5px] font-bold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
               >
                 {authMode === 'login' ? (
-                  <>Don't have an account? <span className="text-orange-500 underline ml-1">Create Shop Signup</span></>
+                  <>Don't have an account? <span className="text-orange-500 underline ml-1 font-bold">Create Shop Signup</span></>
                 ) : (
-                  <>Already registered merchant? <span className="text-orange-500 underline ml-1">Log In Here</span></>
+                  <>Already registered merchant? <span className="text-orange-500 underline ml-1 font-bold">Log In Here</span></>
                 )}
               </button>
             </div>
-
+ 
             {/* HOMEPAGE TRUST SECTION */}
             <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100 flex flex-col gap-2.5 shadow-2xs">
               <div className="flex items-center gap-2">
                 <span className="text-sm">🇮🇳</span>
-                <span className="text-xs font-black text-slate-800 tracking-tight">Made for Indian Businesses</span>
+                <span className="text-xs font-bold text-slate-800 tracking-tight">Made for Indian Businesses</span>
               </div>
-              <div className="grid grid-cols-1 gap-2 text-[11px] text-slate-600 font-bold">
+              <div className="grid grid-cols-1 gap-2 text-[11px] text-slate-600 font-medium">
                 <div className="flex items-center gap-2">
                   <span className="text-sm">🧾</span>
                   <span>Simple GST Billing</span>
