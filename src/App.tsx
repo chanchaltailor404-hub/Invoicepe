@@ -372,6 +372,19 @@ export default function App() {
 
   // Routing and Admin Panel States
   const [currentPath, setCurrentPath] = useState(() => {
+    // 1. Check window.location.href for double hash or standard access_token=
+    const href = window.location.href || '';
+    const tokenIdx = href.indexOf('access_token=');
+    if (tokenIdx !== -1) {
+      const paramString = href.substring(tokenIdx);
+      const params = new URLSearchParams(paramString);
+      const type = params.get('type') || '';
+      if (type === 'recovery') {
+        // Route immediately to forgot-password-secret to prevent interfering with router hash parsing
+        return '/forgot-password-secret';
+      }
+    }
+
     if (window.location.hash.startsWith('#/')) {
       return window.location.hash.substring(1);
     }
@@ -390,30 +403,44 @@ export default function App() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [resetSubmitting, setResetSubmitting] = useState(false);
   const [resetMessage, setResetMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [isResettingPassword, setIsResettingPassword] = useState(false);
-  const isResettingPasswordRef = React.useRef(false);
-  // Synchronously parse tokens from window.location at the very first millisecond
+  
+  const [isResettingPassword, setIsResettingPassword] = useState(() => {
+    const href = window.location.href || '';
+    const tokenIdx = href.indexOf('access_token=');
+    if (tokenIdx !== -1) {
+      const paramString = href.substring(tokenIdx);
+      const params = new URLSearchParams(paramString);
+      return params.get('type') === 'recovery';
+    }
+    return false;
+  });
+  const isResettingPasswordRef = React.useRef(isResettingPassword);
+
+  // Synchronously parse tokens from window.location at the very first millisecond using window.location.href
   const initialRecoveryTokens = React.useMemo(() => {
-    let accessToken = '';
-    let refreshToken = '';
     try {
-      const hash = window.location.hash || '';
-      const search = window.location.search || '';
-      if (hash) {
-        const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
-        const hashParams = new URLSearchParams(cleanHash);
-        accessToken = hashParams.get('access_token') || '';
-        refreshToken = hashParams.get('refresh_token') || '';
-      }
-      if (!accessToken && search) {
-        const searchParams = new URLSearchParams(search);
-        accessToken = searchParams.get('access_token') || '';
-        refreshToken = searchParams.get('refresh_token') || '';
+      const url = window.location.href || '';
+      const tokenIndex = url.indexOf('access_token=');
+      if (tokenIndex !== -1) {
+        const paramString = url.substring(tokenIndex);
+        const params = new URLSearchParams(paramString);
+        const accessToken = params.get('access_token') || '';
+        const refreshToken = params.get('refresh_token') || '';
+        const type = params.get('type') || '';
+        
+        if (accessToken && refreshToken && type === 'recovery') {
+          console.log('Memo: Synchronously parsed recovery tokens from href:', {
+            accessToken: accessToken.substring(0, 10) + '...',
+            refreshToken: refreshToken.substring(0, 10) + '...',
+            type
+          });
+          return { accessToken, refreshToken };
+        }
       }
     } catch (e) {
       console.error('Error during early recovery token parse:', e);
     }
-    return accessToken ? { accessToken, refreshToken } : null;
+    return null;
   }, []);
 
   const [recoveryTokens, setRecoveryTokens] = useState<{ accessToken: string; refreshToken: string } | null>(initialRecoveryTokens);
@@ -475,68 +502,57 @@ export default function App() {
 
   useEffect(() => {
     const checkHashForRecovery = async () => {
-      const hash = window.location.hash || '';
-      const search = window.location.search || '';
-
-      let accessToken = '';
-      let refreshToken = '';
-
-      // 1. Look in hash
-      if (hash) {
-        const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
-        const hashParams = new URLSearchParams(cleanHash);
-        accessToken = hashParams.get('access_token') || '';
-        refreshToken = hashParams.get('refresh_token') || '';
-      }
-
-      // 2. Look in search (query parameters)
-      if (!accessToken && search) {
-        const searchParams = new URLSearchParams(search);
-        accessToken = searchParams.get('access_token') || '';
-        refreshToken = searchParams.get('refresh_token') || '';
-      }
-
-      // Save tokens directly into state so they are never lost on redirects or hash/search clearance
-      if (accessToken) {
-        console.log('Successfully extracted recovery tokens:', {
-          accessToken: accessToken.substring(0, 10) + '...',
-          refreshToken: refreshToken ? refreshToken.substring(0, 10) + '...' : 'none'
-        });
-        const tokens = { accessToken, refreshToken: refreshToken || '' };
-        setRecoveryTokens(tokens);
-        recoveryTokensRef.current = tokens;
-      }
-
-      const isSignupOrConfirm = hash.includes('type=signup') || hash.includes('type=invite') || hash.includes('type=email_change') || search.includes('type=signup') || search.includes('type=invite') || search.includes('type=email_change');
-      const hasRecoveryIndicator = hash.includes('type=recovery') || search.includes('type=recovery') || accessToken;
-
-      if (hasRecoveryIndicator && !isSignupOrConfirm && !hash.includes('otp_expired') && !search.includes('otp_expired')) {
-        setIsResettingPassword(true);
-        setCurrentPath('/forgot-password-secret');
-        // Clear settings window if visible
-        try {
-          setIsSettingsOpen(false);
-        } catch (_) {}
-
-        // Set the session using the parsed tokens immediately on mount
+      // 1. Takes window.location.href (full URL as string)
+      const url = window.location.href || '';
+      
+      // 2. Finds the index of "access_token=" using indexOf() — regardless of what comes before it
+      const tokenIdx = url.indexOf('access_token=');
+      if (tokenIdx !== -1) {
+        // 3. Manually parses everything after that index as URL params
+        const paramString = url.substring(tokenIdx);
+        const params = new URLSearchParams(paramString);
+        
+        const accessToken = params.get('access_token') || '';
+        const refreshToken = params.get('refresh_token') || '';
+        const type = params.get('type') || '';
+        
         if (accessToken) {
+          console.log('Successfully manually extracted recovery tokens from full href:', {
+            accessToken: accessToken.substring(0, 10) + '...',
+            refreshToken: refreshToken ? refreshToken.substring(0, 10) + '...' : 'none',
+            type
+          });
+          const tokens = { accessToken, refreshToken: refreshToken || '' };
+          setRecoveryTokens(tokens);
+          recoveryTokensRef.current = tokens;
+        }
+
+        // 4. If type === 'recovery' and both tokens exist, call setSession
+        if (type === 'recovery' && accessToken && refreshToken) {
+          setIsResettingPassword(true);
+          setCurrentPath('/forgot-password-secret');
+          // Clear settings window if visible
           try {
-            console.log('Automatically setting Supabase session from extracted tokens...');
-            const { error } = await supabase.auth.setSession({
+            setIsSettingsOpen(false);
+          } catch (_) {}
+
+          try {
+            console.log('Mount: Establishing Supabase session explicitly using URL tokens...');
+            const { error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
-              refresh_token: refreshToken || '',
+              refresh_token: refreshToken
             });
-            if (error) {
-              console.error('Error setting session from URL tokens:', error);
+            if (sessionError) {
+              console.error('Mount: Failed to set recovery session:', sessionError.message);
             } else {
-              console.log('Session successfully established from URL tokens!');
+              console.log('Mount: Recovery session successfully established via setSession!');
             }
           } catch (e) {
-            console.error('Exception setting session from URL tokens:', e);
+            console.error('Mount: Exception setting recovery session:', e);
           }
         }
-      } else if ((hash && hash.includes('error_description=')) || (search && search.includes('error_description='))) {
-        if (hash.toLowerCase().includes('recovery') || hash.toLowerCase().includes('password') || search.toLowerCase().includes('recovery') || search.toLowerCase().includes('password')) {
+      } else if (url.toLowerCase().includes('error_description=')) {
+        if (url.toLowerCase().includes('recovery') || url.toLowerCase().includes('password')) {
           setIsResettingPassword(true);
           setCurrentPath('/forgot-password-secret');
         }
@@ -3361,7 +3377,7 @@ Powered by InvoicePe 🧾`;
       setResetMessage(null);
       try {
         const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-          redirectTo: getEmailRedirectUrl() + '/#forgot-password-secret'
+          redirectTo: getEmailRedirectUrl() + '/reset-password'
         });
         if (error) {
           setResetMessage({ text: error.message, type: 'error' });
@@ -3398,22 +3414,36 @@ Powered by InvoicePe 🧾`;
       setResetSubmitting(true);
       setResetMessage(null);
       try {
-        console.log('Executing direct fallback password update...');
+        console.log('Executing direct fallback password update with setSession...');
 
-        // 1. URL hash se manually tokens nikalna agar instance miss ho raha ho
-        let accessToken = recoveryTokens?.accessToken;
-        if (!accessToken && window.location.hash) {
-          const hashParams = new URLSearchParams(window.location.hash.substring(1));
-          accessToken = hashParams.get('access_token') || '';
+        // 1. Retrieve the saved/extracted tokens from state, ref, or window.location.href
+        let accessToken = recoveryTokens?.accessToken || recoveryTokensRef.current?.accessToken || '';
+        let refreshToken = recoveryTokens?.refreshToken || recoveryTokensRef.current?.refreshToken || '';
+
+        if (!accessToken) {
+          const url = window.location.href || '';
+          const tokenIndex = url.indexOf('access_token=');
+          if (tokenIndex !== -1) {
+            const paramString = url.substring(tokenIndex);
+            const params = new URLSearchParams(paramString);
+            accessToken = params.get('access_token') || '';
+            refreshToken = params.get('refresh_token') || '';
+          }
         }
 
-        // 2. Local storage me forcefully inject karna taaki session state valid rahe
+        // 2. Explicitly establish the session right before running supabase.auth.updateUser
         if (accessToken) {
+          console.log('Establishing session explicitly via setSession right before password update...');
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || ''
+          });
+
           const storageKey = `sb-${window.location.hostname.replace('localhost', '127.0.0.1')}-auth-token`;
           localStorage.setItem(storageKey, JSON.stringify({ access_token: accessToken, expires_in: 3600 }));
         }
 
-        // 3. Supabase updateUser direct fire karna bina kisi dynamic wrapper check ke
+        // 3. Supabase updateUser direct fire
         const { error: updateError } = await supabase.auth.updateUser({
           password: newPassword
         });
