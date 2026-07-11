@@ -71,6 +71,7 @@ export default function App() {
   const [rememberMe, setRememberMe] = useState(true);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authSuccessMessage, setAuthSuccessMessage] = useState<string | null>(null);
 
   // Local states for Profile Completion Form (specifically for Google Onboarding)
   const [completionShopName, setCompletionShopName] = useState('');
@@ -1697,6 +1698,7 @@ export default function App() {
   // Handle Google Sign-In via Supabase OAuth
   const handleGoogleSignIn = async () => {
     setAuthError(null);
+    setAuthSuccessMessage(null);
     try {
       console.log('Redirecting to Google OAuth via Supabase...');
       const { error } = await supabase.auth.signInWithOAuth({
@@ -1824,6 +1826,7 @@ export default function App() {
     e.preventDefault();
     setAuthSubmitting(true);
     setAuthError(null);
+    setAuthSuccessMessage(null);
 
     const email = authEmail.trim();
     const password = authPassword;
@@ -1902,6 +1905,9 @@ export default function App() {
           // Set user state to trigger dashboard entry safely
           setUser(initializedSession.user);
           showToast('Welcome to InvoicePe! Your shop is created.', 'success');
+        } else if (finalUser) {
+          console.log('[Signup Process] Account created successfully, but session is pending email verification.');
+          setAuthSuccessMessage(`Account created! We've sent a verification link to ${email}. Please check your inbox (and spam folder) and click the link to activate your account before logging in.`);
         } else {
           console.error('[Signup Process] Error: Could not establish a secure active session after signup.');
           setAuthError('Sign up succeeded, but we could not establish a secure session block. Please use the Login option with the password you just created.');
@@ -3670,10 +3676,10 @@ Powered by InvoicePe 🧾`;
         <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
           
           {/* Top Status Header */}
-          <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-3 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/30">
+          <div className="bg-orange-500/10 text-[10px] text-orange-850 px-4 py-3 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/30">
             <span className="flex items-center gap-1.5 flex-row">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-              <span>Admin Secure Recovery System</span>
+              <span>Account Recovery</span>
             </span>
             <button
               onClick={async () => {
@@ -3681,14 +3687,14 @@ Powered by InvoicePe 🧾`;
                 try {
                   await supabase.auth.signOut();
                 } catch (err) {
-                  console.error('Error signing out during Exit Gateway:', err);
+                  console.error('Error signing out during Exit:', err);
                 }
                 window.location.hash = '';
                 setCurrentPath('/');
               }}
               className="px-2.5 py-1 bg-orange-100/50 hover:bg-orange-100 text-orange-950 font-poppins text-[10px] font-semibold rounded transition-all cursor-pointer border-0"
             >
-              Exit Gateway
+              Exit
             </button>
           </div>
  
@@ -3703,7 +3709,7 @@ Powered by InvoicePe 🧾`;
                   Reset Password / पासवर्ड बदलें
                 </h1>
                 <p className="text-[10px] text-slate-500 font-medium tracking-normal mt-1.5">
-                  InvoicePe Simple Recovery Wizard
+                  InvoicePe Account Recovery
                 </p>
               </div>
             </div>
@@ -3716,20 +3722,6 @@ Powered by InvoicePe 🧾`;
  
             {!isResettingPassword ? (
               <div className="space-y-5">
-                {/* Visual Instructions Card */}
-                <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm space-y-2">
-                  <h3 className="text-xs font-semibold text-slate-800">
-                    Password Reset Instructions / पासवर्ड रीसेट निर्देश:
-                  </h3>
-                  <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
-                    Enter your registered email address and press <strong>Send Reset Link</strong>. 
-                    We will send a secure link to your email. Clicking that link will automatically 
-                    and securely return you here to enter your new password.
-                    <br />
-                    अपना ईमेल लिखकर <strong>"Send Reset Link"</strong> दबाएं। आपको ईमेल पर सुरक्षित लिंक मिलेगा, जिसे खोलते ही आप सीधे नया पासवर्ड सेट कर पाएंगे।
-                  </p>
-                </div>
- 
                 {/* Submit Email Form */}
                 <form onSubmit={handleTriggerReset} className="space-y-3.5 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div>
@@ -3745,11 +3737,11 @@ Powered by InvoicePe 🧾`;
                       className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-850"
                     />
                   </div>
- 
+
                   <button
                     type="submit"
                     disabled={resetSubmitting}
-                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-350 text-white py-3 rounded-xl font-semibold text-xs transition-all shadow-sm cursor-pointer"
                   >
                     {resetSubmitting ? (
                       <>
@@ -3768,11 +3760,11 @@ Powered by InvoicePe 🧾`;
             ) : (
               // STEP 3: Token verified, show password update boxes
               <form onSubmit={handleSaveNewPassword} className="space-y-4">
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-[10px] tracking-wide font-semibold animate-pulse flex items-center justify-center gap-2">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 text-center text-emerald-850 text-xs font-semibold animate-pulse flex items-center justify-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span>Reset Session Authorized / सेशन स्वीकृत</span>
+                  <span>Reset Authorized / रीसेट स्वीकृत</span>
                 </div>
- 
+
                 <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-500 block">New Password (नया पासवर्ड)</label>
@@ -3786,7 +3778,7 @@ Powered by InvoicePe 🧾`;
                       className="w-full text-xs px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-medium text-slate-950"
                     />
                   </div>
- 
+
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-500 block">Confirm New Password (पासवर्ड दोबारा लिखें)</label>
                     <input
@@ -3800,16 +3792,16 @@ Powered by InvoicePe 🧾`;
                     />
                   </div>
                 </div>
- 
+
                 <button
                   type="submit"
                   disabled={resetSubmitting}
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer animate-none"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white py-3 rounded-xl font-semibold text-xs transition-all shadow-md cursor-pointer animate-none"
                 >
                   {resetSubmitting ? (
                     <>
                       <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                      <span>Rewriting password...</span>
+                      <span>Saving password...</span>
                     </>
                   ) : (
                     <>
@@ -3821,11 +3813,11 @@ Powered by InvoicePe 🧾`;
               </form>
             )}
           </div>
- 
+
           {/* Footer lock and trust notation */}
           <div className="text-center py-4 border-t border-slate-100 text-[10px] text-slate-500 font-semibold space-y-1 bg-slate-50">
-            <p>🔒 Security Protocol • SHA-256 Encryption</p>
-            <p>© 2026 InvoicePe Master Account Node</p>
+            <p>🔒 All your personal data is saved securely</p>
+            <p>© 2026 InvoicePe</p>
           </div>
         </div>
       </div>
@@ -3840,11 +3832,11 @@ Powered by InvoicePe 🧾`;
       return (
         <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
           <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
-            <div className="bg-red-500/10 text-[10px] tracking-wider text-red-850 px-4 py-2.5 flex justify-between items-center font-mono font-bold select-none border-b border-red-100/50 -mx-6 -mt-6">
-              <span>ADMIN SECURE GATEWAY</span>
+            <div className="bg-red-500/10 text-[10px] text-red-850 px-4 py-2.5 flex justify-between items-center font-semibold select-none border-b border-red-100/50 -mx-6 -mt-6">
+              <span>Admin Portal</span>
               <div className="flex items-center gap-1.5 flex-row">
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                <span>ACCESS RESTRICTED</span>
+                <span>Access Restricted</span>
               </div>
             </div>
             
@@ -3863,14 +3855,14 @@ Powered by InvoicePe 🧾`;
                   window.history.pushState({}, '', '/');
                   window.dispatchEvent(new Event('popstate'));
                 }}
-                className="px-5 py-3 bg-[#E05E23] hover:bg-orange-600 text-white rounded-xl text-xs font-extrabold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                className="px-5 py-3 bg-[#E05E23] hover:bg-orange-600 text-white rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer"
               >
                 Go Back to Merchant Account
               </button>
             </div>
             
-            <div className="text-center py-4 border-t border-slate-100 text-[10px] text-slate-400 font-bold -mx-6 -mb-6 bg-slate-50">
-              © 2026 InvoicePe Security Protocol
+            <div className="text-center py-4 border-t border-slate-100 text-[10px] text-slate-450 font-semibold -mx-6 -mb-6 bg-slate-50">
+              © 2026 InvoicePe
             </div>
           </div>
         </div>
@@ -3881,17 +3873,17 @@ Powered by InvoicePe 🧾`;
         <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
           <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden transition-all duration-300">
             {/* Admin Header */}
-            <div className="bg-slate-900 text-[10px] tracking-wider text-slate-350 px-4 py-3.5 flex justify-between items-center font-mono font-bold select-none border-b border-slate-800">
+            <div className="bg-slate-900 text-[10px] text-slate-350 px-4 py-3.5 flex justify-between items-center font-semibold select-none border-b border-slate-800">
               <span className="flex items-center gap-1.5 flex-row">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>INVOICEPE ADMIN MASTER SYSTEM</span>
+                <span>InvoicePe Admin Portal</span>
               </span>
               <button
                 onClick={() => {
                   window.history.pushState({}, '', '/');
                   window.dispatchEvent(new Event('popstate'));
                 }}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white font-sans text-[10px] uppercase font-black rounded border border-slate-700 transition-all cursor-pointer"
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white font-sans text-[10px] uppercase font-semibold rounded border border-slate-700 transition-all cursor-pointer"
               >
                 Exit
               </button>
@@ -4034,35 +4026,69 @@ Powered by InvoicePe 🧾`;
           
           {/* Top Status Accent */}
           <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/50 -mx-6 -mt-6">
-            <span>Secure InvoicePe Portal</span>
+            <span>Welcome to InvoicePe</span>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-              <span>System Login</span>
+              <span>Simple billing & digital ledger</span>
             </div>
           </div>
  
-          <div className="flex-1 flex flex-col justify-center py-6 space-y-6">
+          <div className="flex-1 flex flex-col justify-center py-6 space-y-5">
             {/* Branding Header */}
-            <div className="text-center space-y-3">
-              <div className="mx-auto w-14 h-14 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold text-3xl shadow-lg shadow-orange-200/80">
+            <div className="text-center space-y-2">
+              <div className="mx-auto w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold text-2xl shadow-md shadow-orange-200/50">
                 I
               </div>
               <div className="space-y-1 pt-1">
-                <h1 className="text-2xl font-poppins font-bold text-slate-900 tracking-tight leading-none">
-                  Invoice<span className="text-orange-500 font-extrabold">Pe</span>
+                <h1 className="text-xl font-poppins font-semibold text-slate-900 tracking-tight leading-none">
+                  Invoice<span className="text-orange-500 font-semibold">Pe</span>
                 </h1>
-                <p className="text-xs text-slate-500 font-medium tracking-normal mt-1.5">
+                <p className="text-[11px] text-slate-500 font-medium tracking-normal mt-1">
                   India's Digital Vyapaar & Udhaar Ledger
                 </p>
               </div>
             </div>
- 
-            {/* Continue with Google button */}
-            <div className="space-y-4">
+
+            {/* Login & Sign Up Tabs */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shadow-inner">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('login');
+                  setAuthError(null);
+                  setAuthSuccessMessage(null);
+                }}
+                className={`flex-1 py-2 rounded-lg text-xs font-semibold font-poppins transition-all duration-200 cursor-pointer ${
+                  authMode === 'login'
+                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/30'
+                    : 'text-slate-500 hover:text-slate-800 bg-transparent border-0'
+                }`}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('signup');
+                  setAuthError(null);
+                  setAuthSuccessMessage(null);
+                }}
+                className={`flex-1 py-2 rounded-lg text-xs font-semibold font-poppins transition-all duration-200 cursor-pointer ${
+                  authMode === 'signup'
+                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/30'
+                    : 'text-slate-500 hover:text-slate-800 bg-transparent border-0'
+                }`}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            {/* Google Sign-In with Helper & spacing */}
+            <div className="space-y-2">
               <button
                 type="button"
                 onClick={handleGoogleSignIn}
-                className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 border border-slate-250 text-slate-700 py-3 rounded-xl font-bold text-xs shadow-sm hover:shadow transition-all cursor-pointer border-solid"
+                className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 py-3 rounded-xl font-semibold text-xs shadow-xs hover:shadow-sm transition-all cursor-pointer border-solid"
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -4073,11 +4099,16 @@ Powered by InvoicePe 🧾`;
                 <span>Continue with Google</span>
               </button>
 
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-[1px] bg-slate-200"></div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">or enter credentials</span>
-                <div className="flex-1 h-[1px] bg-slate-200"></div>
-              </div>
+              <p className="text-[10.5px] text-slate-400 text-center font-medium leading-relaxed max-w-[95%] mx-auto font-poppins">
+                New here? Same button works — your account is created automatically.
+              </p>
+            </div>
+
+            {/* Generous Spacing Around Divider */}
+            <div className="flex items-center gap-3 py-1 my-1">
+              <div className="flex-1 h-[1px] bg-slate-200"></div>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-poppins">or</span>
+              <div className="flex-1 h-[1px] bg-slate-200"></div>
             </div>
  
             {/* Form */}
@@ -4112,7 +4143,7 @@ Powered by InvoicePe 🧾`;
               </div>
  
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 block">Security Password</label>
+                <label className="text-xs font-semibold text-slate-500 block">Password</label>
                 <input
                   type="password"
                   value={authPassword}
@@ -4155,9 +4186,9 @@ Powered by InvoicePe 🧾`;
                       window.location.hash = 'forgot-password-secret';
                       window.dispatchEvent(new Event('hashchange'));
                     }}
-                    className="text-[11px] font-bold text-orange-500 hover:underline cursor-pointer bg-transparent border-0"
+                    className="text-[11px] font-semibold text-orange-500 hover:underline cursor-pointer bg-transparent border-0 font-poppins"
                   >
-                    Forgot Lock?
+                    Forgot Password?
                   </button>
                 )}
               </div>
@@ -4169,12 +4200,20 @@ Powered by InvoicePe 🧾`;
                   <span>{authError.split('💡')[0]}</span>
                 </div>
               )}
+
+              {/* Submit Success */}
+              {authSuccessMessage && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-2 text-[10.5px] font-semibold text-emerald-700 leading-snug">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span>{authSuccessMessage}</span>
+                </div>
+              )}
  
               {/* Action Button */}
               <button
                 type="submit"
                 disabled={authSubmitting}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-bold text-xs shadow-md shadow-orange-100 uppercase tracking-wider transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-bold text-xs shadow-md shadow-orange-100 uppercase tracking-wider transition-all cursor-pointer font-poppins"
               >
                 {authSubmitting ? (
                   <>
@@ -4183,36 +4222,18 @@ Powered by InvoicePe 🧾`;
                   </>
                 ) : (
                   <>
-                    <span>{authMode === 'login' ? 'Proceed to Ledger Book' : 'Register Shop & Start Book'}</span>
+                    <span>{authMode === 'login' ? 'Login' : 'Create Account'}</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
             </form>
  
-            {/* Toggle Login vs SignUp option */}
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                  setAuthError(null);
-                }}
-                className="text-[11.5px] font-bold text-slate-500 hover:text-orange-600 transition-colors uppercase tracking-wider bg-transparent border-0 cursor-pointer"
-              >
-                {authMode === 'login' ? (
-                  <>Don't have an account? <span className="text-orange-500 underline ml-1 font-bold">Create Shop Signup</span></>
-                ) : (
-                  <>Already registered merchant? <span className="text-orange-500 underline ml-1 font-bold">Log In Here</span></>
-                )}
-              </button>
-            </div>
- 
             {/* HOMEPAGE TRUST SECTION */}
             <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100 flex flex-col gap-2.5 shadow-2xs">
               <div className="flex items-center gap-2">
                 <span className="text-sm">🇮🇳</span>
-                <span className="text-xs font-bold text-slate-800 tracking-tight">Made for Indian Businesses</span>
+                <span className="text-xs font-semibold text-slate-800 tracking-tight font-poppins">Made for Indian Businesses</span>
               </div>
               <div className="grid grid-cols-1 gap-2 text-[11px] text-slate-600 font-medium">
                 <div className="flex items-center gap-2">
@@ -4232,7 +4253,7 @@ Powered by InvoicePe 🧾`;
           </div>
 
           {/* Footer lock and trust notation */}
-          <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest -mx-6 -mb-6 bg-slate-50">
+          <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest -mx-6 -mb-6 bg-slate-50 font-poppins">
             <p>🔒 AES-256 Bit Supabase Encrypted Ledger</p>
             <p>© 2026 InvoicePe App. All customer data saved securely.</p>
           </div>
@@ -4418,27 +4439,29 @@ Powered by InvoicePe 🧾`;
         )}
 
         {/* TOP STATUS BAR ACCENT */}
-        <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2 flex justify-between items-center font-mono font-bold select-none border-b border-orange-100/50">
-          <span>INVOICEPE DIGITAL LEDGER</span>
-          <div className="flex items-center gap-1.5 flex-row">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>STORE SESSION ALIVE</span>
+        <div className="bg-orange-500/5 text-[10px] text-slate-500 px-4 py-2.5 flex justify-between items-center font-poppins select-none border-b border-orange-100/30">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-700">
+            <span className="w-4 h-4 bg-orange-500 rounded flex items-center justify-center text-white text-[9px] font-bold">I</span>
+            <span>InvoicePe</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
           </div>
         </div>
 
         {/* HEADER */}
-        <header id="main-header" className="bg-white border-b border-orange-100 flex flex-col px-5 py-4 sticky top-0 z-30 shadow-sm flex-none">
+        <header id="main-header" className="bg-white border-b border-orange-100 flex flex-col px-5 py-3.5 sticky top-0 z-30 shadow-xs flex-none">
           <div className="flex justify-between items-center">
             {/* Logo */}
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 bg-orange-500 rounded-lg flex items-center justify-center text-white font-black text-xl shadow-lg shadow-orange-200">
+              <div className="w-9 h-9 bg-orange-500 rounded-lg flex items-center justify-center text-white font-semibold text-xl shadow-xs">
                 I
               </div>
               <div>
-                <h1 className="text-xl font-display font-extrabold text-slate-900 tracking-tight leading-none">
-                  Invoice<span className="text-orange-500">Pe</span>
+                <h1 className="text-lg font-poppins font-semibold text-slate-900 tracking-tight leading-none">
+                  Invoice<span className="text-orange-500 font-semibold">Pe</span>
                 </h1>
-                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Vyapaar Book</p>
+                <p className="text-[10px] text-slate-400 font-medium mt-0.5">Vyapaar Book</p>
               </div>
             </div>
 
@@ -4455,14 +4478,14 @@ Powered by InvoicePe 🧾`;
                     setCustomShopAddressInput(shopAddress);
                     setIsSettingsOpen(true);
                   }}
-                  className="flex items-center gap-2 cursor-pointer group bg-orange-50/50 hover:bg-orange-50 px-2.5 py-1.5 rounded-xl border border-orange-100 transition-all select-none"
+                  className="flex items-center gap-2 cursor-pointer group bg-orange-50/50 hover:bg-orange-50 px-2.5 py-1.5 rounded-lg border border-orange-100 transition-all select-none"
                   title="Vyapaar Settings & UPI Profile"
                 >
                   <div className="text-right">
-                    <p className="text-[7.5px] text-orange-600 font-extrabold uppercase tracking-widest leading-none">Settings</p>
-                    <p className="font-extrabold text-[11px] text-slate-800 group-hover:text-orange-650 transition-colors truncate max-w-[100px] mt-0.5">{shopName}</p>
+                    <p className="text-[8.5px] text-orange-650 font-medium leading-none">Settings</p>
+                    <p className="font-semibold text-xs text-slate-800 group-hover:text-orange-600 transition-colors truncate max-w-[100px] mt-0.5">{shopName}</p>
                   </div>
-                  <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center text-white font-black text-[9px] shrink-0 group-hover:scale-105 transition-all">
+                  <div className="w-7 h-7 rounded bg-orange-500 flex items-center justify-center text-white font-semibold text-[9px] shrink-0 group-hover:scale-105 transition-all">
                     {(typeof shopName === 'string' ? shopName : 'Verma General Store').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'SP'}
                   </div>
                 </div>
@@ -4474,9 +4497,9 @@ Powered by InvoicePe 🧾`;
                 type="button"
                 onClick={() => setIsGstReportOpen(true)}
                 title="Generate Monthly GST Report"
-                className="w-8 h-8 rounded-full bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
+                className="w-8 h-8 rounded-lg bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
               >
-                <FileText className="w-3.5 h-3.5 stroke-[2.5]" />
+                <FileText className="w-3.5 h-3.5 stroke-[2]" />
               </button>
 
               {/* Header Logout Button */}
@@ -4484,9 +4507,9 @@ Powered by InvoicePe 🧾`;
                 type="button"
                 onClick={handleLogout}
                 title="Log Out From Register"
-                className="w-8 h-8 rounded-full bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
+                className="w-8 h-8 rounded-lg bg-orange-50 hover:bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 hover:text-orange-700 transition-colors cursor-pointer shrink-0"
               >
-                <LogOut className="w-3.5 h-3.5 stroke-[2.5]" />
+                <LogOut className="w-3.5 h-3.5 stroke-[2]" />
               </button>
             </div>
           </div>
@@ -4497,9 +4520,9 @@ Powered by InvoicePe 🧾`;
           <button
             type="button"
             onClick={() => setActiveView('dashboard')}
-            className={`flex-1 py-2 text-center rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 text-center rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeView === 'dashboard'
-                ? 'bg-orange-500 text-white shadow-md shadow-orange-100'
+                ? 'bg-orange-500 text-white shadow-xs'
                 : 'text-slate-500 hover:text-slate-900 bg-transparent hover:bg-slate-50'
             }`}
           >
@@ -4509,9 +4532,9 @@ Powered by InvoicePe 🧾`;
           <button
             type="button"
             onClick={() => setActiveView('customers')}
-            className={`flex-1 py-2 text-center rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 text-center rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeView === 'customers'
-                ? 'bg-orange-500 text-white shadow-md shadow-orange-100'
+                ? 'bg-orange-500 text-white shadow-xs'
                 : 'text-slate-500 hover:text-slate-900 bg-transparent hover:bg-slate-50'
             }`}
           >
@@ -4521,9 +4544,9 @@ Powered by InvoicePe 🧾`;
           <button
             type="button"
             onClick={() => setActiveView('udhaar')}
-            className={`flex-1 py-2 text-center rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 text-center rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeView === 'udhaar'
-                ? 'bg-orange-500 text-white shadow-md shadow-orange-100'
+                ? 'bg-orange-500 text-white shadow-xs'
                 : 'text-slate-500 hover:text-slate-900 bg-transparent hover:bg-slate-50'
             }`}
           >
@@ -4573,17 +4596,17 @@ Powered by InvoicePe 🧾`;
             {/* Welcome Message */}
             <section className="px-1 pt-1 flex-none flex flex-col gap-2">
               <div className="flex items-center gap-2 justify-between md:justify-start">
-                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Namaste, {(typeof shopName === 'string' ? shopName : 'Verma General Store').split(' ')[0]}!</h2>
+                <h2 className="text-xl font-semibold text-slate-900 tracking-tight leading-none">Namaste, {(typeof shopName === 'string' ? shopName : 'Verma General Store').split(' ')[0]}!</h2>
                 {isPro && (
                   userPlan === 'business' ? (
-                    <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-indigo-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-indigo-400 font-mono">
-                      <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
-                      <span>BUSINESS ACTIVE {proUntil ? `until ${new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Permanent'}</span>
+                    <span className="text-[9px] font-semibold bg-indigo-500 text-white px-2.5 py-1 rounded-full flex items-center gap-1 shadow-xs leading-none shrink-0 border border-indigo-400 font-poppins">
+                      <Gift className="w-2.5 h-2.5 shrink-0" />
+                      <span>Business Active {proUntil ? `until ${new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Permanent'}</span>
                     </span>
                   ) : (
-                    <span className="text-[8.5px] tracking-wider font-extrabold uppercase bg-emerald-500 text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 shadow-sm leading-none shrink-0 border border-emerald-400 font-mono">
-                      <Gift className="w-2.5 h-2.5 shrink-0 animate-bounce" />
-                      <span>PRO ACTIVE {proUntil ? `until ${new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Permanent'}</span>
+                    <span className="text-[9px] font-semibold bg-emerald-500 text-white px-2.5 py-1 rounded-full flex items-center gap-1 shadow-xs leading-none shrink-0 border border-emerald-400 font-poppins">
+                      <Gift className="w-2.5 h-2.5 shrink-0" />
+                      <span>Pro Active {proUntil ? `until ${new Date(proUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Permanent'}</span>
                     </span>
                   )
                 )}
@@ -4592,35 +4615,35 @@ Powered by InvoicePe 🧾`;
             </section>
 
             {/* INVOICE USAGE COUNTER BAR */}
-            <div className="bg-white border border-slate-100 rounded-2xl p-4.5 shadow-sm flex flex-col gap-3">
+            <div className="bg-white border border-slate-100 rounded-xl p-4 flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${isPro ? 'bg-emerald-500' : 'bg-orange-500'}`} />
-                  <span className="text-xs font-black text-slate-800 uppercase tracking-wider font-mono">
+                  <span className={`w-2 h-2 rounded-full animate-pulse ${isPro ? 'bg-emerald-500' : 'bg-orange-500'}`} />
+                  <span className="text-xs font-semibold text-slate-700 font-sans">
                     {isPro ? 'Invoice Usage (Unlimited)' : 'Free Invoice Usage'}
                   </span>
                 </div>
                 {!isPro ? (
-                  <span className="text-[10px] font-extrabold text-orange-600 bg-orange-50 px-2 py-1 rounded-md border border-orange-100 uppercase">Free Plan</span>
+                  <span className="text-[10px] font-semibold text-orange-650 bg-orange-50 px-2 py-1 rounded border border-orange-100">Free Plan</span>
                 ) : (
-                  <span className="text-[10px] font-extrabold text-indigo-600 bg-indigo-55/10 px-2.5 py-1 rounded-md border border-indigo-100/50 uppercase font-mono">{userPlan === 'business' ? 'Business Plan' : 'Pro Plan'}</span>
+                  <span className="text-[10px] font-semibold text-indigo-650 bg-indigo-50 px-2.5 py-1 rounded border border-indigo-100/50 font-poppins">{userPlan === 'business' ? 'Business Plan' : 'Pro Plan'}</span>
                 )}
               </div>
               
               <div className="space-y-1.5">
                 <div className="relative pt-1">
-                  <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-slate-100">
+                  <div className="overflow-hidden h-2 text-xs flex rounded-full bg-slate-100">
                     <div 
                       style={{ width: isPro ? '100%' : `${Math.min((invoices.length / 30) * 100, 100)}%` }} 
                       className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center transition-all duration-500 rounded-full ${
-                        isPro ? 'bg-gradient-to-r from-emerald-500 to-indigo-500' : invoices.length >= 27 ? 'bg-red-500 animate-pulse' : invoices.length >= 20 ? 'bg-orange-500' : 'bg-amber-500'
+                        isPro ? 'bg-gradient-to-r from-emerald-500 to-indigo-500' : invoices.length >= 27 ? 'bg-red-500' : invoices.length >= 20 ? 'bg-orange-500' : 'bg-amber-500'
                       }`}
                     />
                   </div>
                 </div>
-                <div className="flex justify-between items-center text-[11px] font-bold text-slate-500">
-                  <span className="font-sans font-black text-slate-700">{isPro ? `${invoices.length} Invoices Created` : `${invoices.length} / 30 Free Invoices Used`}</span>
-                  <span className="font-mono text-[10px]">{isPro ? 'Unlimited Invoices Unlocked' : '30 Bills Limit'}</span>
+                <div className="flex justify-between items-center text-[11px] font-medium text-slate-500">
+                  <span className="font-sans text-slate-700">{isPro ? `${invoices.length} Invoices Created` : `${invoices.length} / 30 Free Invoices Used`}</span>
+                  <span className="font-poppins text-[10px]">{isPro ? 'Unlimited Invoices' : '30 Bills Limit'}</span>
                 </div>
               </div>
 
@@ -4628,9 +4651,9 @@ Powered by InvoicePe 🧾`;
                 <button
                   type="button"
                   onClick={() => setShowLimitPopup(true)}
-                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-[10px] tracking-wider py-2.5 px-4 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs active:scale-[0.99] uppercase font-sans"
+                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold text-[11px] py-2 px-4 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs active:scale-[0.99] font-sans"
                 >
-                  🚀 {invoices.length >= 30 ? 'Limit Reached • Upgrade to Continue' : 'Upgrade to PRO / BUSINESS for Unlimited Invoices'}
+                  🚀 {invoices.length >= 30 ? 'Limit Reached • Upgrade to Continue' : 'Upgrade to Pro / Business for Unlimited Invoices'}
                 </button>
               )}
             </div>
@@ -4639,16 +4662,16 @@ Powered by InvoicePe 🧾`;
             <div className="grid grid-cols-2 gap-4" id="metrics-grid">
               
               {/* CARD 1: TOTAL SALES (Span 2 for emphasis as high level core metric) */}
-              <div id="card-total-sales" className="col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-2 relative overflow-hidden">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Total Sales Volume</span>
+              <div id="card-total-sales" className="col-span-2 bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex flex-col gap-2 relative overflow-hidden">
+                <span className="text-xs font-semibold text-slate-500">Total Sales Volume</span>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-black text-slate-900 leading-none">₹{metrics.totalSales.toLocaleString('en-IN')}</span>
-                  <span className="text-emerald-500 text-xs font-bold leading-none bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-100/50">+12%</span>
+                  <span className="text-2xl font-bold text-slate-900 leading-none">₹{metrics.totalSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="text-emerald-500 text-xs font-semibold leading-none bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100/50">+12%</span>
                 </div>
-                <div className="mt-3.5 h-1 w-full bg-slate-50 rounded-full overflow-hidden">
+                <div className="mt-2.5 h-1 w-full bg-slate-50 rounded-full overflow-hidden">
                   <div className="h-full bg-orange-500" style={{ width: '75%' }}></div>
                 </div>
-                <div className="mt-1 flex justify-between items-center text-[10px] text-slate-400 font-semibold font-mono">
+                <div className="mt-1 flex justify-between items-center text-[10px] text-slate-400 font-medium font-poppins">
                   <span>{metrics.paidCount} Fully Received</span>
                   <span>•</span>
                   <span>{metrics.totalInvoicesCount} Issued Invoices</span>
@@ -4662,24 +4685,24 @@ Powered by InvoicePe 🧾`;
                   setActiveView('customers');
                   setCustomerFilter('pending');
                 }}
-                className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-2 ring-2 ring-orange-500 ring-offset-2 cursor-pointer hover:bg-orange-50/10 transition-colors"
+                className="bg-white p-5 rounded-xl border border-orange-200 shadow-xs flex flex-col gap-2 ring-1 ring-orange-400 ring-offset-1 cursor-pointer hover:bg-orange-50/10 transition-colors"
               >
-                <span className="text-[11px] font-bold text-orange-500 uppercase tracking-widest">Pending Payments</span>
+                <span className="text-xs font-semibold text-orange-600">Pending Payments</span>
                 <div className="flex items-baseline justify-between gap-1 mt-0.5">
-                  <span className="text-xl font-black text-slate-900 leading-none">₹{metrics.pendingPayments.toLocaleString('en-IN')}</span>
-                  <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded text-[9px] font-extrabold uppercase tracking-tight">High</span>
+                  <span className="text-xl font-bold text-slate-900 leading-none">₹{metrics.pendingPayments.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded-md text-[9px] font-semibold">High</span>
                 </div>
-                <p className="text-[9px] text-slate-400 font-bold mt-3.5 italic leading-tight uppercase tracking-wider">
-                  {metrics.pendingCount} unpaid ledger
+                <p className="text-[10px] text-slate-400 font-medium mt-2 leading-tight">
+                  {metrics.pendingCount} unpaid bills
                 </p>
               </div>
 
               {/* CARD 3: TOTAL INVOICES */}
-              <div id="card-total-invoices" className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-2">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Total Invoices</span>
+              <div id="card-total-invoices" className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex flex-col gap-2">
+                <span className="text-xs font-semibold text-slate-500">Total Invoices</span>
                 <div className="flex items-baseline gap-1 justify-between mt-0.5">
-                  <span className="text-2xl font-black text-slate-900 leading-none">{metrics.totalInvoicesCount}</span>
-                  <span className="text-slate-400 text-[9px] font-extrabold uppercase tracking-widest leading-none">Book</span>
+                  <span className="text-xl font-bold text-slate-900 leading-none">{metrics.totalInvoicesCount}</span>
+                  <span className="text-slate-400 text-[10px] font-medium leading-none">Book</span>
                 </div>
                 <div className="flex mt-3.5 gap-1 py-0.5 select-none">
                   <div className="h-1 flex-1 bg-emerald-400 rounded-full"></div>
@@ -4696,33 +4719,33 @@ Powered by InvoicePe 🧾`;
               <button
                 type="button"
                 onClick={() => setIsFormOpen(true)}
-                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2 border border-orange-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
+                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2.5 border border-orange-100 shadow-xs flex flex-col items-center gap-1.5 justify-center font-semibold text-[11px] transition-all cursor-pointer rounded-lg"
               >
-                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <Plus className="w-4 h-4 stroke-[2]" />
                 <span>New Invoice</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveView('customers')}
-                className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2 border border-slate-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
+                className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2.5 border border-slate-100 shadow-xs flex flex-col items-center gap-1.5 justify-center font-semibold text-[11px] transition-all cursor-pointer rounded-lg"
               >
-                <Users className="w-4 h-4 stroke-[2.5]" />
+                <Users className="w-4 h-4 stroke-[2]" />
                 <span>Customers</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveView('udhaar')}
-                className="bg-red-50 hover:bg-red-100 text-red-650 p-2 border border-red-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
+                className="bg-red-50 hover:bg-red-100 text-red-650 p-2.5 border border-red-100 shadow-xs flex flex-col items-center gap-1.5 justify-center font-semibold text-[11px] transition-all cursor-pointer rounded-lg"
               >
-                <Notebook className="w-4 h-4 text-red-500 stroke-[2.5]" />
+                <Notebook className="w-4 h-4 text-red-500 stroke-[2]" />
                 <span className="text-red-650">Udhaar Book</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsGstReportOpen(true)}
-                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2 border border-orange-100 shadow-sm flex flex-col items-center gap-1.5 justify-center font-bold text-[10px] transition-all cursor-pointer rounded-xl"
+                className="bg-orange-50 hover:bg-orange-100 text-orange-600 p-2.5 border border-orange-100 shadow-xs flex flex-col items-center gap-1.5 justify-center font-semibold text-[11px] transition-all cursor-pointer rounded-lg"
               >
-                <FileText className="w-4 h-4 text-orange-500 stroke-[2.5]" />
+                <FileText className="w-4 h-4 text-orange-500 stroke-[2]" />
                 <span>GST Report</span>
               </button>
             </div>
@@ -4730,30 +4753,30 @@ Powered by InvoicePe 🧾`;
             {/* SEND DAILY SUMMARY LEDGER REPORT CARD */}
             <div 
               onClick={handleSendDailySummary}
-              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-650 hover:to-amber-650 p-4 rounded-xl shadow-sm cursor-pointer transition-all flex items-center justify-between group select-none relative overflow-hidden"
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 p-4 rounded-xl shadow-xs cursor-pointer transition-all flex items-center justify-between group select-none relative overflow-hidden"
             >
               <div className="absolute -right-4 -bottom-4 opacity-10">
-                <Share2 className="w-20 h-20 text-white stroke-[2.5]" />
+                <Share2 className="w-20 h-20 text-white stroke-[2]" />
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
-                  <Share2 className="w-4 h-4 text-white stroke-[2.5]" />
+                <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <Share2 className="w-4 h-4 text-white stroke-[2]" />
                 </div>
                 <div className="text-left font-sans">
-                  <p className="text-[11px] font-black uppercase text-white tracking-widest flex items-center gap-1.5">
+                  <p className="text-xs font-semibold text-white flex items-center gap-1.5">
                     <span>Send Daily Summary</span>
                   </p>
-                  <p className="text-[9.5px] text-orange-50/90 font-bold leading-tight mt-0.5">Share today's store performance overview on WhatsApp</p>
+                  <p className="text-[10px] text-orange-50/95 font-medium leading-tight mt-0.5">Share today's store performance overview on WhatsApp</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1 bg-white/15 hover:bg-white/25 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all shrink-0">
+              <div className="flex items-center gap-1 bg-white/15 hover:bg-white/25 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-semibold transition-all shrink-0">
                 <span>Send WhatsApp</span>
                 <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
               </div>
             </div>
 
             {/* SEARCH & FILTERS CONTROLS */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+            <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs space-y-3">
               <div className="flex flex-col md:flex-row gap-3">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -4762,7 +4785,7 @@ Powered by InvoicePe 🧾`;
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search by Name or Phone..."
-                    className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
+                    className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-lg border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
                   />
                   {searchQuery && (
                     <button 
@@ -4787,7 +4810,7 @@ Powered by InvoicePe 🧾`;
                         setEndDate('');
                       }
                     }}
-                    className="w-full text-xs pl-8 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all font-semibold text-slate-700 appearance-none cursor-pointer"
+                    className="w-full text-xs pl-8 pr-8 py-2.5 bg-[#FFFBF7] rounded-lg border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all font-semibold text-slate-700 appearance-none cursor-pointer"
                   >
                     <option value="All">All Time (हमेशा)</option>
                     <option value="Today">Today (आज)</option>
@@ -4806,35 +4829,35 @@ Powered by InvoicePe 🧾`;
               {datePeriod === 'Custom' && (
                 <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-50">
                   <div>
-                    <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wide mb-1">From Date</label>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">From Date</label>
                     <input
                       type="date"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-[#FFFBF7] rounded-xl border border-slate-150 focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold text-slate-700"
+                      className="w-full text-xs px-3 py-2 bg-[#FFFBF7] rounded-lg border border-slate-150 focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold text-slate-700"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wide mb-1">To Date</label>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">To Date</label>
                     <input
                       type="date"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-[#FFFBF7] rounded-xl border border-slate-150 focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold text-slate-700"
+                      className="w-full text-xs px-3 py-2 bg-[#FFFBF7] rounded-lg border border-slate-150 focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold text-slate-700"
                     />
                   </div>
                 </div>
               )}
 
               {/* Tab states */}
-              <div className="flex bg-[#FFFBF7] border border-slate-100/70 p-1.5 rounded-xl text-[11px] font-extrabold text-slate-500">
+              <div className="flex bg-[#FFFBF7] border border-slate-100/70 p-1.5 rounded-lg text-xs text-slate-500">
                 {(['All', 'Paid', 'Pending'] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setStatusFilter(tab)}
-                    className={`flex-1 py-1.5 text-center rounded-lg transition-all cursor-pointer font-bold ${
+                    className={`flex-1 py-1.5 text-center rounded-md transition-all cursor-pointer font-semibold ${
                       statusFilter === tab 
-                        ? 'bg-white text-orange-600 shadow-sm border border-orange-100/30' 
+                        ? 'bg-white text-orange-605 shadow-xs border border-orange-100/30 font-semibold' 
                         : 'hover:text-slate-950'
                     }`}
                   >
@@ -4846,20 +4869,20 @@ Powered by InvoicePe 🧾`;
 
             {/* SUB-SECTION HEADER */}
             <div className="flex justify-between items-center px-1">
-              <h2 className="text-xs font-bold text-slate-700 tracking-wider uppercase flex items-center gap-1.5 mb-0.5">
+              <h2 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5 mb-0.5">
                 <span>Invoice Ledger</span>
                 <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-mono font-bold">
                   {filteredInvoices.length}
                 </span>
               </h2>
-              <span className="text-[10px] text-slate-450 font-bold uppercase tracking-wider">Tap to view Receipt</span>
+              <span className="text-[10px] text-slate-400 font-medium">Tap to view Receipt</span>
             </div>
 
             {/* RECENT INVOICES MAIN CONTAINER TABLE */}
-            <section className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+            <section className="bg-white rounded-xl border border-slate-100 shadow-xs overflow-hidden flex flex-col">
               <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between bg-slate-50/50 flex-none">
-                <h3 className="font-bold text-slate-900 uppercase tracking-dense text-[11px]">Ledger Sheet</h3>
-                <span className="text-[9px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-md font-bold uppercase tracking-widest">Active</span>
+                <h3 className="font-semibold text-slate-700 text-xs">Ledger Sheet</h3>
+                <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded font-semibold">Active</span>
               </div>
               
               <div className="divide-y divide-slate-50" id="invoices-ledger">
@@ -4870,7 +4893,7 @@ Powered by InvoicePe 🧾`;
                     <button 
                       type="button"
                       onClick={() => { setSearchQuery(''); setStatusFilter('All'); }}
-                      className="text-[11px] text-orange-600 font-black tracking-wider uppercase hover:underline cursor-pointer"
+                      className="text-xs text-orange-600 font-semibold hover:underline cursor-pointer"
                     >
                       Reset filters
                     </button>
@@ -4884,19 +4907,19 @@ Powered by InvoicePe 🧾`;
                     >
                       <div className="space-y-1 min-w-[70%]">
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-mono font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          <span className="text-[9px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                             {inv.invoiceNo}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-bold">
+                          <span className="text-[10px] text-slate-400 font-semibold">
                             {inv.date}
                           </span>
                         </div>
 
-                        <h4 className="font-bold text-sm text-slate-900 tracking-tight leading-none pt-0.5 truncate">
+                        <h4 className="font-semibold text-sm text-slate-900 tracking-tight leading-none pt-0.5 truncate">
                           {inv.customerName}
                         </h4>
 
-                        <p className="text-[10.5px] text-slate-400 truncate">
+                        <p className="text-[10.5px] text-slate-450 truncate">
                           {inv.items.map(i => `${i.name} x${i.quantity}`).join(', ')}
                         </p>
 
@@ -4907,7 +4930,7 @@ Powered by InvoicePe 🧾`;
                               e.stopPropagation();
                               handleWhatsAppShare(inv);
                             }}
-                            className="flex items-center gap-1 font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                            className="flex items-center gap-1 font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                           >
                             <Share2 className="w-3 h-3 text-emerald-500" />
                             <span>WhatsApp</span>
@@ -4918,7 +4941,7 @@ Powered by InvoicePe 🧾`;
                               e.stopPropagation();
                               toggleInvoiceStatus(inv.id);
                             }}
-                            className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                            className={`flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
                               inv.status === 'Paid' 
                                 ? 'text-orange-705 bg-orange-50 hover:bg-orange-100/85' 
                                 : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100/85'
@@ -4930,16 +4953,16 @@ Powered by InvoicePe 🧾`;
                       </div>
 
                       <div className="text-right flex flex-col justify-between items-end space-y-2.5">
-                        <div className="text-xs font-black text-slate-900 font-mono">
-                          ₹{inv.totalAmount.toLocaleString('en-IN')}
+                        <div className="text-xs font-semibold text-slate-900 font-mono">
+                          ₹{inv.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
 
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider leading-none select-none ${
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold leading-none select-none ${
                           inv.status === 'Paid' 
-                            ? 'bg-emerald-100 text-emerald-700' 
-                            : 'bg-orange-100 text-orange-755'
+                            ? 'bg-emerald-50 text-emerald-605' 
+                            : 'bg-orange-50 text-orange-650'
                         }`}>
-                          {inv.status === 'Paid' ? 'PAID' : 'PENDING'}
+                          {inv.status === 'Paid' ? 'Paid' : 'Pending'}
                         </span>
                       </div>
                     </div>
@@ -4961,13 +4984,13 @@ Powered by InvoicePe 🧾`;
             {/* Customer Header */}
             <section className="px-1 pt-1 flex-none flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Customers Ledger</h2>
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight">Customers Ledger</h2>
                 <p className="text-slate-500 text-xs mt-1.5 font-medium leading-none">Track individual books and send reminders.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveView('dashboard')}
-                className="p-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer"
+                className="p-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-semibold text-xs flex items-center gap-1 transition-all cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Back</span>
@@ -4975,7 +4998,7 @@ Powered by InvoicePe 🧾`;
             </section>
 
             {/* CUSTOMER SEARCH & FILTER CONTROLS */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+            <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs space-y-3">
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -4983,7 +5006,7 @@ Powered by InvoicePe 🧾`;
                   value={customerSearchQuery}
                   onChange={(e) => setCustomerSearchQuery(e.target.value)}
                   placeholder="Search Grahak by name, phone, or email... / ईमेल से खोजें"
-                  className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-xl border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
+                  className="w-full text-xs pl-9 pr-8 py-2.5 bg-[#FFFBF7] rounded-lg border border-slate-100/80 focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all placeholder:text-slate-400 font-semibold text-slate-900"
                 />
                 {customerSearchQuery && (
                   <button 
@@ -4996,7 +5019,7 @@ Powered by InvoicePe 🧾`;
               </div>
 
               {/* Customer Filter Tabs */}
-              <div className="flex bg-[#FFFBF7] border border-slate-100/70 p-1.5 rounded-xl text-[11px] font-extrabold text-slate-500">
+              <div className="flex bg-[#FFFBF7] border border-slate-100/70 p-1.5 rounded-lg text-xs text-slate-500">
                 {([
                   { key: 'all', label: 'All Grahaks' },
                   { key: 'pending', label: 'Owed Only (उधार)' },
@@ -5006,9 +5029,9 @@ Powered by InvoicePe 🧾`;
                     key={tab.key}
                     type="button"
                     onClick={() => setCustomerFilter(tab.key)}
-                    className={`flex-1 py-1.5 text-center rounded-lg transition-all cursor-pointer font-bold ${
+                    className={`flex-1 py-1.5 text-center rounded-md transition-all cursor-pointer font-semibold ${
                       customerFilter === tab.key 
-                        ? 'bg-white text-orange-600 shadow-sm border border-orange-100/30' 
+                        ? 'bg-white text-orange-605 shadow-xs border border-orange-100/30' 
                         : 'hover:text-slate-950'
                     }`}
                   >
@@ -5021,13 +5044,13 @@ Powered by InvoicePe 🧾`;
             {/* CUSTOMERS CARDS LIST */}
             <div className="space-y-3 prose" id="customers-list">
               {filteredCustomers.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center p-6 space-y-2">
+                <div className="text-center py-12 bg-white rounded-xl border border-slate-100 shadow-xs flex flex-col items-center justify-center p-6 space-y-2">
                   <AlertCircle className="w-8 h-8 text-slate-300" />
                   <p className="text-xs text-slate-500 font-semibold">No customers match filters.</p>
                   <button 
                     type="button"
                     onClick={() => { setCustomerSearchQuery(''); setCustomerFilter('all'); }}
-                    className="text-[11px] text-orange-600 font-black tracking-wider uppercase hover:underline cursor-pointer"
+                    className="text-xs text-orange-600 font-semibold hover:underline cursor-pointer"
                   >
                     Reset Filters
                   </button>
@@ -5037,29 +5060,29 @@ Powered by InvoicePe 🧾`;
                   <div
                     key={cust.name}
                     onClick={() => setSelectedCustomerForHistory(cust)}
-                    className="bg-white p-4.5 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center hover:border-orange-200 transition-all cursor-pointer active:scale-[0.99]"
+                    className="bg-white p-4.5 rounded-xl border border-slate-100 shadow-xs flex justify-between items-center hover:border-orange-200 transition-all cursor-pointer active:scale-[0.99]"
                   >
                     <div className="space-y-1.5 max-w-[65%]">
-                      <h3 className="font-bold text-sm text-slate-900 leading-tight tracking-tight truncate">
+                      <h3 className="font-semibold text-sm text-slate-900 leading-tight tracking-tight truncate">
                         {cust.name}
                       </h3>
-                      <p className="text-[10px] text-slate-400 font-mono font-bold flex items-center gap-1 leading-none">
+                      <p className="text-[10.5px] text-slate-400 font-mono font-medium flex items-center gap-1 leading-none">
                         <Phone className="w-3 h-3 text-slate-400" />
                         {cust.phone && cust.phone !== 'No Mobile' ? `+91 ${cust.phone}` : 'No Mobile'}
                       </p>
-                      <p className="text-[10px] text-slate-450 font-bold uppercase tracking-wide">
+                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">
                         {cust.invoices.length} {cust.invoices.length === 1 ? 'Bill' : 'Bills'} Issued
                       </p>
                     </div>
 
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Owed Balance</p>
-                        <p className={`text-base font-black font-mono mt-1 ${cust.pendingAmount > 0 ? 'text-red-500 animate-pulse' : 'text-emerald-600'}`}>
-                          ₹{cust.pendingAmount.toLocaleString('en-IN')}
+                        <p className="text-[10px] font-semibold text-slate-400 leading-none">Owed Balance</p>
+                        <p className={`text-base font-semibold font-mono mt-1.5 ${cust.pendingAmount > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                          ₹{cust.pendingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
-                        <p className="text-[9px] font-bold mt-0.5 leading-none uppercase tracking-widest">
-                          {cust.pendingAmount > 0 ? 'Udhaar pending' : 'Settle / Paid'}
+                        <p className={`text-[10px] font-semibold mt-1 leading-none ${cust.pendingAmount > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                          {cust.pendingAmount > 0 ? 'Udhaar Pending' : 'Fully Settled'}
                         </p>
                       </div>
 
@@ -5099,13 +5122,13 @@ Powered by InvoicePe 🧾`;
             {/* Udhaar Welcome Details and Metrics */}
             <section className="px-1 pt-1 flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight leading-none text-orange-650">उधार बही (Udhaar Book)</h2>
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight">उधार बही (Udhaar Book)</h2>
                 <p className="text-slate-500 text-xs mt-1.5 font-medium leading-none">Hisab-Kitab easily managed digitally on InvoicePe.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsUdhaarFormOpen(true)}
-                className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs uppercase tracking-wider px-3.5 py-2.5 rounded-xl shadow-md cursor-pointer flex items-center gap-1 active:scale-95 transition-all"
+                className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs px-3.5 py-2.5 rounded-lg shadow-sm cursor-pointer flex items-center gap-1 active:scale-95 transition-all"
               >
                 <Plus className="w-3.5 h-3.5 stroke-[3]" />
                 <span>नया उधार (New Udhaar)</span>
@@ -5114,20 +5137,20 @@ Powered by InvoicePe 🧾`;
 
             {/* Loader & Error handler */}
             {udhaarLoading ? (
-              <div className="flex items-center justify-center py-20 bg-white rounded-2xl border border-slate-150 shadow-xs">
+              <div className="flex items-center justify-center py-20 bg-white rounded-xl border border-slate-150 shadow-xs">
                 <div className="flex flex-col items-center gap-3 text-center">
                   <div className="w-8 h-8 border-3 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
                   <p className="text-xs text-slate-500 font-semibold font-sans">उधार बही ख़ाता लोड हो रहा है...<br/><span className="text-[10px] font-normal text-slate-400">Loading your secure ledger from Supabase</span></p>
                 </div>
               </div>
             ) : udhaarError ? (
-              <div className="p-5 bg-red-50 border border-red-100 rounded-2xl text-xs flex flex-col gap-2 font-sans">
-                <span className="font-extrabold text-red-750 text-sm">त्रुटि (An error occurred loading Udhaar Book)</span>
+              <div className="p-5 bg-red-50 border border-red-100 rounded-xl text-xs flex flex-col gap-2 font-sans">
+                <span className="font-semibold text-red-750 text-sm">त्रुटि (An error occurred loading Udhaar Book)</span>
                 <p className="text-slate-600 font-medium">{udhaarError}</p>
                 <button
                   type="button"
                   onClick={() => fetchUdhaar(true)}
-                  className="mt-1 text-xs bg-red-650 text-white px-4 py-2 rounded-xl font-bold self-start cursor-pointer hover:bg-red-700 transition"
+                  className="mt-1 text-xs bg-red-650 text-white px-4 py-2 rounded-lg font-semibold self-start cursor-pointer hover:bg-red-700 transition"
                 >
                   पुनः प्रयास करें (Retry)
                 </button>
@@ -5141,15 +5164,15 @@ Powered by InvoicePe 🧾`;
                 .reduce((total, item) => total + item.amount, 0);
 
               return (
-                <div className="bg-red-50 border border-red-100 p-5 rounded-2xl shadow-sm flex flex-col gap-1.5 relative overflow-hidden">
+                <div className="bg-red-50 border border-red-100 p-5 rounded-xl shadow-xs flex flex-col gap-1.5 relative overflow-hidden">
                   <div className="absolute right-4 top-4 text-red-100">
                     <Notebook className="w-16 h-16 stroke-[1.5]" />
                   </div>
-                  <span className="text-[11px] font-bold text-red-600 uppercase tracking-widest block font-sans">कुल बाकी रकम (Total Udhaar Baaki)</span>
-                  <p className="text-3xl font-black text-red-600 font-mono leading-none">
-                    ₹{pendingUdhaarTotal.toLocaleString('en-IN')}
+                  <span className="text-xs font-semibold text-red-600 block font-sans">कुल बाकी रकम (Total Udhaar Baaki)</span>
+                  <p className="text-3xl font-semibold text-red-600 font-mono leading-none mt-1">
+                    ₹{pendingUdhaarTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
-                  <div className="mt-2.5 flex justify-between items-center text-[10px] text-red-750 font-semibold font-mono">
+                  <div className="mt-2.5 flex justify-between items-center text-[10px] text-red-750 font-medium font-sans">
                     <span>{udhaars.filter(item => item.status === 'Unpaid').length} Owed Accounts</span>
                     <span>•</span>
                     <span>उधार बही बहीखाता (Ledger)</span>
@@ -5161,16 +5184,16 @@ Powered by InvoicePe 🧾`;
             {/* List of People Who Owe Money */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
-                <h2 className="text-xs font-bold text-slate-705 tracking-wider uppercase flex items-center gap-1.5 leading-none">
+                <h2 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5 leading-none">
                   <span>Active Udhaar (बाकी सूचि)</span>
-                  <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-mono font-bold">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded-full font-mono font-bold">
                     {udhaars.filter(item => item.status === 'Unpaid').length}
                   </span>
                 </h2>
               </div>
 
               {udhaars.filter(item => item.status === 'Unpaid').length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center p-6 space-y-2">
+                <div className="text-center py-12 bg-white rounded-xl border border-slate-100 shadow-xs flex flex-col items-center justify-center p-6 space-y-2">
                   <CheckCircle2 className="w-8 h-8 text-emerald-550" />
                   <p className="text-xs text-slate-500 font-semibold font-sans">Sabb paid hai! Koi udhaar baaki nahi hai. 👍</p>
                 </div>
@@ -5181,32 +5204,32 @@ Powered by InvoicePe 🧾`;
                     .map((item) => (
                       <div
                         key={item.id}
-                        className="bg-white p-4.5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between gap-3 hover:border-red-250 transition-all font-sans"
+                        className="bg-white p-4.5 rounded-xl border border-slate-100 shadow-xs flex flex-col justify-between gap-3 hover:border-red-200 transition-all font-sans"
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-1.5">
-                            <h3 className="font-extrabold text-sm text-slate-900 leading-tight">
+                            <h3 className="font-semibold text-sm text-slate-900 leading-tight">
                               {item.customer_name}
                             </h3>
-                            <span className="text-[7.5px] bg-red-100 text-red-705 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-widest leading-none">
-                              DUE / बाकि
+                            <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-semibold leading-none">
+                              Due
                             </span>
                           </div>
                           
                           {item.phone && item.phone !== 'No Mobile' && (
-                            <p className="text-[10px] text-slate-400 font-mono font-bold flex items-center gap-1 leading-none">
+                            <p className="text-[10.5px] text-slate-400 font-mono font-medium flex items-center gap-1 leading-none">
                               <Phone className="w-3 h-3 text-slate-400" />
                               +91 {item.phone}
                             </p>
                           )}
                           
                           {item.note && (
-                            <p className="text-xs text-slate-500 italic bg-slate-50 border border-slate-100 p-2 rounded-lg my-1 block">
+                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 p-2 rounded-lg my-1 block font-medium italic border-l-2 border-red-300">
                               "{item.note}"
                             </p>
                           )}
                           
-                          <p className="text-[9.5px] text-slate-450 font-semibold font-mono">
+                          <p className="text-[10px] text-slate-450 font-medium font-sans mt-1">
                             Date: {item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',
@@ -5215,11 +5238,11 @@ Powered by InvoicePe 🧾`;
                           </p>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3.5 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between gap-3.5 pt-2.5 border-t border-slate-100">
                           <div>
-                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block leading-none font-sans">Baaki Rakam</span>
-                            <span className="text-base font-black font-mono text-red-650 block">
-                              ₹{item.amount.toLocaleString('en-IN')}
+                            <span className="text-[10px] font-semibold text-slate-400 block leading-none font-sans">Baaki Rakam</span>
+                            <span className="text-base font-semibold font-mono text-red-600 block mt-1">
+                              ₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                           </div>
 
@@ -5228,7 +5251,7 @@ Powered by InvoicePe 🧾`;
                             <button
                               type="button"
                               onClick={() => handleSendUdhaarReminder(item)}
-                              className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 p-2 rounded-xl transition-all active:scale-90 cursor-pointer flex items-center gap-1 text-[10.5px] font-extrabold"
+                              className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 p-2 rounded-lg transition-all active:scale-90 cursor-pointer flex items-center gap-1 text-xs font-semibold"
                               title="Send WhatsApp Reminder"
                             >
                               <Share2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -5239,7 +5262,7 @@ Powered by InvoicePe 🧾`;
                             <button
                               type="button"
                               onClick={() => handleMarkUdhaarAsPaid(item.id, item.customer_name, item.amount)}
-                              className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-[10.5px] px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                              className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs px-3 py-2 rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1"
                             >
                               <Check className="w-3.5 h-3.5 stroke-[3]" />
                               <span>Paid किया</span>
@@ -5255,7 +5278,7 @@ Powered by InvoicePe 🧾`;
             {/* Paid Udhaar History Section at bottom */}
             <div className="space-y-3 pt-4">
               <div className="flex justify-between items-center px-1">
-                <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 font-sans leading-none">
+                <h2 className="text-xs font-semibold text-slate-500 flex items-center gap-1.5 font-sans leading-none">
                   <span>Paid History (चुकाए गए खातों का इतिहास)</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full font-mono font-bold">
                     {udhaars.filter(item => item.status === 'Paid').length}
@@ -5264,11 +5287,11 @@ Powered by InvoicePe 🧾`;
               </div>
 
               {udhaars.filter(item => item.status === 'Paid').length === 0 ? (
-                <div className="text-center py-8 bg-slate-50 border border-slate-100 rounded-2xl text-slate-400 text-xs font-semibold font-sans">
+                <div className="text-center py-8 bg-slate-50 border border-slate-100 rounded-xl text-slate-400 text-xs font-semibold font-sans">
                   इतिहास खाली है (Paid account history is empty).
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 border border-slate-150 rounded-2xl overflow-hidden bg-white shadow-xs">
+                <div className="divide-y divide-slate-100 border border-slate-150 rounded-xl overflow-hidden bg-white shadow-xs">
                   {udhaars
                     .filter(item => item.status === 'Paid')
                     .map((item) => (
@@ -5278,31 +5301,31 @@ Powered by InvoicePe 🧾`;
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-1.5">
-                            <h4 className="font-bold text-slate-700 text-xs truncate">
+                            <h4 className="font-semibold text-slate-700 text-xs truncate">
                               {item.customer_name}
                             </h4>
-                            <span className="text-[7.5px] bg-emerald-100 text-emerald-850 px-1.5 py-0.5 rounded font-extrabold tracking-widest leading-none">
-                              PAID / चुकता
+                            <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-semibold leading-none">
+                              Paid / चुकता
                             </span>
                           </div>
                           
                           {item.note && (
-                            <p className="text-[11px] text-slate-450 truncate max-w-[180px]">
+                            <p className="text-[11px] text-slate-500 truncate max-w-[180px] font-medium">
                               "{item.note}"
                             </p>
                           )}
                           
-                          <p className="text-[9px] text-slate-400 font-mono font-bold leading-none">
+                          <p className="text-[10px] text-slate-400 font-sans leading-none">
                             Received: {item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : ''}
                           </p>
                         </div>
 
                         <div className="text-right">
-                          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Settle Amount</p>
-                          <p className="text-sm font-black text-slate-450 font-mono line-through">
-                            ₹{item.amount.toLocaleString('en-IN')}
+                          <p className="text-[10px] font-semibold text-slate-400">Settle Amount</p>
+                          <p className="text-xs font-semibold text-slate-400 font-mono line-through mt-1">
+                            ₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
-                          <span className="text-[8px] text-emerald-600 font-bold block bg-emerald-50 border border-emerald-100 rounded px-1 mt-0.5">
+                          <span className="text-[9px] text-emerald-650 font-semibold block bg-emerald-50 border border-emerald-100 rounded px-1.5 py-0.5 mt-1.5">
                             Settle Completed
                           </span>
                         </div>
@@ -5331,10 +5354,10 @@ Powered by InvoicePe 🧾`;
                 setIsFormOpen(true);
               }
             }}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4.5 rounded-2xl font-black text-xs shadow-xl shadow-orange-200 transition-all flex items-center justify-center gap-3 active:scale-[0.98] cursor-pointer tracking-widest uppercase"
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-xl font-semibold text-sm shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
-            <span>CREATE NEW INVOICE</span>
+            <span>Create New Invoice</span>
           </button>
         </footer>
 
@@ -5357,12 +5380,12 @@ Powered by InvoicePe 🧾`;
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 15 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-                className="relative w-full max-w-md max-h-[85vh] bg-white rounded-3xl shadow-2xl z-50 flex flex-col border border-orange-100 overflow-hidden"
+                className="relative w-full max-w-md max-h-[85vh] bg-white rounded-2xl shadow-2xl z-50 flex flex-col border border-orange-100 overflow-hidden"
               >
                 {/* Header of Drawer */}
                 <div className="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 z-10 font-sans">
                   <div>
-                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 text-orange-600">
+                    <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5 text-orange-650">
                       <QrCode className="w-4 h-4 text-orange-500 animate-pulse" />
                       <span>व्यापार सेटिंग्स (Merchant Settings)</span>
                     </h3>
@@ -5383,8 +5406,8 @@ Powered by InvoicePe 🧾`;
                   {/* Scrollable inputs region */}
                   <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
-                    <div className="space-y-3 bg-orange-50/20 p-3.5 rounded-xl border border-orange-100">
-                      <h4 className="text-[11px] font-bold text-orange-850 uppercase tracking-widest flex items-center gap-1.5">
+                    <div className="space-y-3 bg-orange-50/20 p-3.5 rounded-lg border border-orange-100">
+                      <h4 className="text-xs font-semibold text-orange-850 flex items-center gap-1.5">
                         <Store className="w-3.5 h-3.5 text-orange-500" />
                         <span>व्यापार प्रोफाइल (Vyapaar Profile)</span>
                       </h4>
