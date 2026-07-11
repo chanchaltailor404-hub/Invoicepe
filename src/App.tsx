@@ -2751,10 +2751,12 @@ export default function App() {
 
     const processShare = () => {
       const hasUpiSet = upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi';
+      const statusText = (inv.status || 'PENDING').toUpperCase();
+      const isPending = statusText === 'PENDING';
       
-      // Attempt to download the QR code canvas if present in DOM
+      // Attempt to download the QR code canvas if present in DOM (only for unpaid/pending invoices)
       const canvas = document.getElementById('invoice-qr-canvas') as HTMLCanvasElement | null;
-      if (hasUpiSet && canvas) {
+      if (hasUpiSet && isPending && canvas) {
         try {
           const qrImage = canvas.toDataURL('image/png');
           const link = document.createElement('a');
@@ -2775,16 +2777,19 @@ export default function App() {
       const qrGstAmount = inv.gstAmount !== undefined ? inv.gstAmount : qrSubtotal * (qrGstRate / 100);
       const qrGrandTotal = Math.round(qrSubtotal + qrGstAmount);
       
-      const statusText = (inv.status || 'PENDING').toUpperCase();
       const encodedShopName = encodeURIComponent(shopName);
 
       let upiPaymentSection = '';
-      if (hasUpiSet) {
-        upiPaymentSection = `💳 Pay instantly via UPI:\n` +
-          `UPI ID: ${upiId}\n` +
-          `Amount: ₹${inv.totalAmount}\n` +
-          `Or click to pay:\n` +
-          `gpay://upi/pay?pa=${upiId}&pn=${encodedShopName}&am=${inv.totalAmount}&cu=INR\n`;
+      if (isPending) {
+        if (hasUpiSet) {
+          upiPaymentSection = `💳 Pay instantly via UPI:\n` +
+            `UPI ID: ${upiId}\n` +
+            `Amount: ₹${inv.totalAmount}\n` +
+            `Or click to pay:\n` +
+            `gpay://upi/pay?pa=${upiId}&pn=${encodedShopName}&am=${inv.totalAmount}&cu=INR\n`;
+        }
+      } else {
+        upiPaymentSection = `This invoice has been paid in full. Thank you!\n`;
       }
 
       const text = `🧾 Invoice from ${shopName}\n` +
@@ -2806,7 +2811,8 @@ export default function App() {
 
     // If canvas is not yet in the DOM, let react render it first
     const canvasExists = !!document.getElementById('invoice-qr-canvas');
-    if (!canvasExists && upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi') {
+    const isPendingInvoice = (inv.status || 'PENDING').toUpperCase() === 'PENDING';
+    if (!canvasExists && isPendingInvoice && upiId && upiId.trim() !== '' && upiId.trim() !== 'shopname@upi') {
       setTimeout(() => {
         processShare();
       }, 250);
