@@ -4285,7 +4285,6 @@ Powered by InvoicePe 🧾`;
 
           {/* Footer lock and trust notation */}
           <div className="text-center py-4 border-t border-slate-100 text-[9px] text-slate-400 font-bold space-y-1 uppercase tracking-widest -mx-6 -mb-6 bg-slate-50 font-poppins">
-            <p>🔒 AES-256 Bit Supabase Encrypted Ledger</p>
             <p>© 2026 InvoicePe App. All customer data saved securely.</p>
           </div>
         </div>
