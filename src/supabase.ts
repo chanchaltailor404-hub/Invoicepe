@@ -14,3 +14,8 @@ console.log("Target Key:", supabaseKey ? supabaseKey.substring(0, 12) + "..." : 
 console.log("--------------------------------------");
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+if (typeof window !== 'undefined') {
+  (window as any).supabase = supabase;
+  console.log("🔓 Supabase client is now exposed on the browser console as 'window.supabase' for testing.");
+}
