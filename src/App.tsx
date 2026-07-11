@@ -2892,8 +2892,38 @@ Powered by InvoicePe 🧾`;
     }
   };
 
-  // Parse voice text transcript to auto-extract Customer Name, and Items with quantities/rates
-  const parseVoiceInvoice = (transcript: string) => {
+  // Parse voice text transcript using server-side Gemini API (falls back to local regex parsing on failure)
+  const parseVoiceInvoice = async (transcript: string) => {
+    try {
+      const response = await fetch("/api/parse-voice-invoice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ transcript })
+      });
+      if (!response.ok) {
+        throw new Error("Failed to parse via server Gemini API");
+      }
+      const data = await response.json();
+      
+      // Ensure we add unique ids to returned items so they behave well in React state lists
+      if (data.items && Array.isArray(data.items)) {
+        data.items = data.items.map((item: any) => ({
+          ...item,
+          id: 'voice-' + Math.random().toString(36).substring(2, 9),
+        }));
+      }
+
+      return data;
+    } catch (err) {
+      console.warn("AI voice parsing failed, using robust local parsing fallback:", err);
+      return parseVoiceInvoiceFallback(transcript);
+    }
+  };
+
+  // Robust fallback local regex parsing for auto-extracting Customer Name and Items
+  const parseVoiceInvoiceFallback = (transcript: string) => {
     let customerNameResult = "";
     let itemPart = transcript;
 
@@ -3099,11 +3129,12 @@ Powered by InvoicePe 🧾`;
         setIsListening(false);
       };
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = async (event: any) => {
         const textTranscript = event.results[0][0].transcript;
         setVoiceTranscript(textTranscript);
         
-        const parsed = parseVoiceInvoice(textTranscript);
+        showToast("Gemini parsing your voice...", "info");
+        const parsed = await parseVoiceInvoice(textTranscript);
         
         if (parsed.customerName) {
           setCustomerName(parsed.customerName);
@@ -6148,7 +6179,7 @@ Powered by InvoicePe 🧾`;
                               Tap orange mic and speak clearly (Hindi / English):
                             </p>
                             <p className="text-[9px] text-neutral-400 mt-0.5 leading-tight font-medium">
-                              e.g. <span className="font-bold text-slate-500 italic">"Ramesh ko 2 kilo atta 60 aur 1 litre tel 120"</span>
+                              e.g. <span className="font-bold text-slate-500 italic">"Ramesh ko 2 kilo aata 60 aur 1 litre tel 120"</span>
                             </p>
                           </div>
                         )}
@@ -6162,8 +6193,9 @@ Powered by InvoicePe 🧾`;
                           <label className="text-[9.5px] font-bold text-neutral-500 uppercase tracking-widest">What was heard:</label>
                           <button
                             type="button"
-                            onClick={() => {
-                              const parsed = parseVoiceInvoice(voiceTranscript);
+                            onClick={async () => {
+                              showToast("Gemini re-parsing...", "info");
+                              const parsed = await parseVoiceInvoice(voiceTranscript);
                               if (parsed.customerName) setCustomerName(parsed.customerName);
                               if (parsed.items && parsed.items.length > 0) {
                                 const isCurrentEmpty = formItems.length === 1 && formItems[0].name === '' && formItems[0].price === 0;
