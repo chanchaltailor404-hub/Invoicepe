@@ -36,7 +36,8 @@ import {
   Key,
   Mail,
   Sparkles,
-  Zap
+  Zap,
+  ArrowDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -407,6 +408,32 @@ export default function App() {
   const [formGstRate, setFormGstRate] = useState<number>(18);
   const [formGstType, setFormGstType] = useState<'inclusive' | 'exclusive'>('exclusive');
   const [formStatus, setFormStatus] = useState<'Paid' | 'Pending'>('Paid');
+
+  const formScrollRef = React.useRef<HTMLFormElement>(null);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+
+  const checkScrollOverflow = () => {
+    const el = formScrollRef.current;
+    if (el) {
+      const isScrollable = el.scrollHeight > el.clientHeight;
+      const isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 25;
+      setShowScrollIndicator(isScrollable && !isAtBottom);
+    }
+  };
+
+  useEffect(() => {
+    let timer: any;
+    if (isFormOpen) {
+      timer = setTimeout(() => {
+        checkScrollOverflow();
+      }, 250);
+    } else {
+      setShowScrollIndicator(false);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isFormOpen, formItems, showVoiceHelp]);
 
   // Notification state
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
@@ -3548,8 +3575,8 @@ Powered by InvoicePe 🧾`;
 
   if (authLoading) {
     return (
-      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-center items-center gap-3 transition-all duration-300">
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden justify-center items-center gap-3 transition-all duration-300">
           <div className="w-12 h-12 rounded-full border-4 border-orange-200 border-t-orange-500 animate-spin"></div>
           <p className="text-[11px] font-extrabold text-orange-950 animate-pulse tracking-widest uppercase text-center">Initializing InvoicePe Ledger...</p>
         </div>
@@ -3664,8 +3691,8 @@ Powered by InvoicePe 🧾`;
     };
 
     return (
-      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden justify-between transition-all duration-300">
           
           {/* Top Status Header */}
           <div className="bg-orange-500/10 text-[10px] text-orange-850 px-4 py-3 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/30">
@@ -3822,8 +3849,8 @@ Powered by InvoicePe 🧾`;
        // Allow user verification flow below; do not block here
     } else if (user.email !== 'chanchaltailor404@gmail.com') {
       return (
-        <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-          <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
+        <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+          <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden p-6 justify-between transition-all duration-300">
             <div className="bg-red-500/10 text-[10px] text-red-850 px-4 py-2.5 flex justify-between items-center font-semibold select-none border-b border-red-100/50 -mx-6 -mt-6">
               <span>Admin Portal</span>
               <div className="flex items-center gap-1.5 flex-row">
@@ -3862,8 +3889,8 @@ Powered by InvoicePe 🧾`;
     } else {
       // Is admin user on /admin-invoicepe-secret route
       return (
-        <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-          <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden transition-all duration-300">
+        <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+          <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden transition-all duration-300">
             {/* Admin Header */}
             <div className="bg-slate-900 text-[10px] text-slate-350 px-4 py-3.5 flex justify-between items-center font-semibold select-none border-b border-slate-800">
               <span className="flex items-center gap-1.5 flex-row">
@@ -4013,8 +4040,8 @@ Powered by InvoicePe 🧾`;
 
   if (!user) {
     return (
-      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden p-6 justify-between transition-all duration-300">
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden p-6 justify-between transition-all duration-300">
           
           {/* Top Status Accent */}
           <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-2.5 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/50 -mx-6 -mt-6">
@@ -4255,8 +4282,8 @@ Powered by InvoicePe 🧾`;
 
   if (user && isProfileIncomplete) {
     return (
-      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
-        <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden justify-between transition-all duration-300">
+      <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-poppins text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+        <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden justify-between transition-all duration-300">
           
           {/* Top Status Header */}
           <div className="bg-orange-500/10 text-[10px] tracking-wider text-orange-850 px-4 py-3 flex justify-between items-center font-poppins font-semibold select-none border-b border-orange-100/30 w-full">
@@ -4416,10 +4443,10 @@ Powered by InvoicePe 🧾`;
 
   // Logged-in view starting
   return (
-    <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
+    <div id="app-root" className={`min-h-screen bg-neutral-900 flex justify-center items-start overflow-x-hidden font-sans text-neutral-800 selection:bg-orange-500 selection:text-white pt-4 md:pt-0 ${darkMode ? 'dark' : ''} transition-all duration-300`}>
       
       {/* Container simulating high quality mobile dashboard centered on desktop, seamless on actual mobile */}
-      <div id="mobile-viewport" className="w-full max-w-md min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl relative border border-neutral-850/20 rounded-3xl overflow-hidden transition-all duration-300">
+      <div id="mobile-viewport" className="w-full max-w-md md:max-w-5xl min-h-screen bg-[#FFFBF7] flex flex-col shadow-2xl md:shadow-none relative border border-neutral-850/20 md:border-none rounded-3xl md:rounded-none overflow-hidden transition-all duration-300">
         
         {/* Loading Spinner Overlay */}
         {isLoading && (
@@ -6001,10 +6028,10 @@ Powered by InvoicePe 🧾`;
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: '30%', opacity: 0 }}
                 transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-                className="absolute left-0 right-0 bottom-0 max-h-[92vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-y-auto flex flex-col border-t border-orange-100"
+                className="absolute left-0 right-0 bottom-0 max-h-[92vh] bg-white rounded-t-3xl shadow-2xl z-50 overflow-hidden flex flex-col border-t border-orange-100"
               >
                 {/* Header of Drawer */}
-                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-white z-10">
                   <div>
                     <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide">Generate New Bill</h3>
                     <p className="text-[10px] text-neutral-500 mt-0.5">Quick GST / Cash invoice draft</p>
@@ -6019,7 +6046,12 @@ Powered by InvoicePe 🧾`;
                 </div>
 
                 {/* Form main context */}
-                <form onSubmit={handleCreateInvoice} className="p-5 space-y-4 flex-1 pb-10">
+                <form 
+                  ref={formScrollRef}
+                  onScroll={checkScrollOverflow}
+                  onSubmit={handleCreateInvoice} 
+                  className="p-5 space-y-4 flex-1 pb-20 overflow-y-auto custom-scrollbar"
+                >
 
                   {/* VOICE INVOICE MODULE */}
                   <div className="bg-gradient-to-r from-orange-500/5 via-orange-100/10 to-transparent p-4 rounded-2xl border border-orange-100/80 space-y-3 font-sans shadow-sm">
@@ -6475,6 +6507,22 @@ Powered by InvoicePe 🧾`;
                   })()}
 
                 </form>
+
+                {/* Floating scroll indicator banner */}
+                {showScrollIndicator && (
+                  <div 
+                    onClick={() => {
+                      formScrollRef.current?.scrollTo({
+                        top: formScrollRef.current.scrollTop + 180,
+                        behavior: 'smooth'
+                      });
+                    }}
+                    className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-orange-500 hover:bg-orange-600 text-white px-3.5 py-2 rounded-full flex items-center gap-1.5 shadow-xl text-[10px] font-black tracking-wider animate-bounce cursor-pointer z-50 uppercase select-none border border-orange-400 font-sans transition-all active:scale-95"
+                  >
+                    <span>Scroll for more</span>
+                    <ArrowDown className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                )}
               </motion.div>
             </>
           )}

@@ -4,3 +4,20 @@
   --font-poppins: "Poppins", sans-serif;
   --font-inter: "Inter", sans-serif;
 }
+
+/* Elegant visible custom scrollbars for overflowing containers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(249, 115, 22, 0.05); /* very light orange tint */
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(249, 115, 22, 0.45); /* soft orange thumb */
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(249, 115, 22, 0.7); /* darker orange on hover */
+}
