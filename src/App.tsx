@@ -2227,42 +2227,6 @@ export default function App() {
     }
   };
 
-  const startupDatabaseTest = async (currentUser: any) => {
-    if (!currentUser) return;
-    console.log('🚀 Supabase Startup Connection Test Initiated...');
-    try {
-      const testCustomerName = `Verification Grahak ${Math.floor(100 + Math.random() * 900)}`;
-      const testPhone = '9876543210';
-      
-      console.log(`Writing verification row to 'customers'... name="${testCustomerName}"`);
-      const { data: inserted, error: insertErr } = await supabase
-        .from('customers')
-        .insert({ name: testCustomerName, phone: testPhone, user_id: currentUser.id })
-        .select('id, name, phone');
-
-      if (insertErr) {
-        console.error('❌ Supabase write verification failed:', insertErr);
-      } else {
-        console.log('✅ Supabase write verification successful!', inserted);
-      }
-
-      console.log('Reading ' + testCustomerName + ' back from customers table to verify list reads...');
-      const { data: testFetch, error: fetchErr } = await supabase
-        .from('customers')
-        .select('id, name')
-        .eq('user_id', currentUser.id)
-        .limit(1);
-
-      if (fetchErr) {
-        console.error('❌ Supabase list read query failed:', fetchErr);
-      } else {
-        console.log('✅ Supabase read verification successful!', testFetch);
-      }
-    } catch (err: any) {
-      console.error('❌ Exception thrown during startup connect verify:', err);
-    }
-  };
-
   // Auth flow and sessions loading effect with robust coordination
   const initRef = React.useRef(false);
 
@@ -2327,9 +2291,6 @@ export default function App() {
             setGstin(metaGstin);
             setCustomGstinInput(metaGstin);
           }
-
-          // Hydrate user data and settings
-          await startupDatabaseTest(sessionUser);
           
           // Wait for all data fetches to prevent layout shift or half-loaded UI flash
           await Promise.all([
